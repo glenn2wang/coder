@@ -12,6 +12,7 @@ import {
 import { BaseOption } from "components/Filter/options"
 import { UseFilterMenuOptions, useFilterMenu } from "components/Filter/menu"
 import { userFilterQuery } from "utils/filters"
+import { docs } from "utils/docs"
 
 type StatusOption = BaseOption & {
   color: string
@@ -23,7 +24,8 @@ export const useStatusFilterMenu = ({
 }: Pick<UseFilterMenuOptions<StatusOption>, "value" | "onChange">) => {
   const statusOptions: StatusOption[] = [
     { value: "active", label: "Active", color: "success" },
-    { value: "suspended", label: "Suspended", color: "secondary" },
+    { value: "dormant", label: "Dormant", color: "secondary" },
+    { value: "suspended", label: "Suspended", color: "warning" },
   ]
   return useFilterMenu({
     onChange,
@@ -56,7 +58,9 @@ export const UsersFilter = ({
   return (
     <Filter
       presets={PRESET_FILTERS}
-      learnMoreLink="https://coder.com/docs/v2/latest/admin/users#user-filtering"
+      learnMoreLink={docs("/admin/users#user-filtering")}
+      learnMoreLabel2="User status"
+      learnMoreLink2={docs("/admin/users#user-status")}
       isLoading={menus.status.isInitializing}
       filter={filter}
       error={error}

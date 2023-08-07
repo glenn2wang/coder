@@ -19,6 +19,7 @@ type UserStatus string
 
 const (
 	UserStatusActive    UserStatus = "active"
+	UserStatusDormant   UserStatus = "dormant"
 	UserStatusSuspended UserStatus = "suspended"
 )
 
@@ -33,6 +34,14 @@ type UsersRequest struct {
 	Pagination
 }
 
+// MinimalUser is the minimal information needed to identify a user and show
+// them on the UI.
+type MinimalUser struct {
+	ID        uuid.UUID `json:"id" validate:"required" table:"id" format:"uuid"`
+	Username  string    `json:"username" validate:"required" table:"username,default_sort"`
+	AvatarURL string    `json:"avatar_url" format:"uri"`
+}
+
 // User represents a user in Coder.
 type User struct {
 	ID         uuid.UUID `json:"id" validate:"required" table:"id" format:"uuid"`
@@ -45,6 +54,7 @@ type User struct {
 	OrganizationIDs []uuid.UUID `json:"organization_ids" format:"uuid"`
 	Roles           []Role      `json:"roles"`
 	AvatarURL       string      `json:"avatar_url" format:"uri"`
+	LoginType       LoginType   `json:"login_type"`
 }
 
 type GetUsersResponse struct {
@@ -82,6 +92,34 @@ type UpdateUserProfileRequest struct {
 type UpdateUserPasswordRequest struct {
 	OldPassword string `json:"old_password" validate:""`
 	Password    string `json:"password" validate:"required"`
+}
+
+type UserQuietHoursScheduleResponse struct {
+	RawSchedule string `json:"raw_schedule"`
+	// UserSet is true if the user has set their own quiet hours schedule. If
+	// false, the user is using the default schedule.
+	UserSet bool `json:"user_set"`
+	// Time is the time of day that the quiet hours window starts in the given
+	// Timezone each day.
+	Time     string `json:"time"`     // HH:mm (24-hour)
+	Timezone string `json:"timezone"` // raw format from the cron expression, UTC if unspecified
+	// Next is the next time that the quiet hours window will start.
+	Next time.Time `json:"next" format:"date-time"`
+}
+
+type UpdateUserQuietHoursScheduleRequest struct {
+	// Schedule is a cron expression that defines when the user's quiet hours
+	// window is. Schedule must not be empty. For new users, the schedule is set
+	// to 2am in their browser or computer's timezone. The schedule denotes the
+	// beginning of a 4 hour window where the workspace is allowed to
+	// automatically stop or restart due to maintenance or template max TTL.
+	//
+	// The schedule must be daily with a single time, and should have a timezone
+	// specified via a CRON_TZ prefix (otherwise UTC will be used).
+	//
+	// If the schedule is empty, the user will be updated to use the default
+	// schedule.
+	Schedule string `json:"schedule" validate:"required"`
 }
 
 type UpdateRoles struct {
@@ -123,10 +161,9 @@ type CreateOrganizationRequest struct {
 
 // AuthMethods contains authentication method information like whether they are enabled or not or custom text, etc.
 type AuthMethods struct {
-	ConvertToOIDCEnabled bool           `json:"convert_to_oidc_enabled"`
-	Password             AuthMethod     `json:"password"`
-	Github               AuthMethod     `json:"github"`
-	OIDC                 OIDCAuthMethod `json:"oidc"`
+	Password AuthMethod     `json:"password"`
+	Github   AuthMethod     `json:"github"`
+	OIDC     OIDCAuthMethod `json:"oidc"`
 }
 
 type AuthMethod struct {
@@ -362,6 +399,36 @@ func (c *Client) User(ctx context.Context, userIdent string) (User, error) {
 	}
 	var user User
 	return user, json.NewDecoder(res.Body).Decode(&user)
+}
+
+// UserQuietHoursSchedule returns the quiet hours settings for the user. This
+// endpoint only exists in enterprise editions.
+func (c *Client) UserQuietHoursSchedule(ctx context.Context, userIdent string) (UserQuietHoursScheduleResponse, error) {
+	res, err := c.Request(ctx, http.MethodGet, fmt.Sprintf("/api/v2/users/%s/quiet-hours", userIdent), nil)
+	if err != nil {
+		return UserQuietHoursScheduleResponse{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return UserQuietHoursScheduleResponse{}, ReadBodyAsError(res)
+	}
+	var resp UserQuietHoursScheduleResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
+}
+
+// UpdateUserQuietHoursSchedule updates the quiet hours settings for the user.
+// This endpoint only exists in enterprise editions.
+func (c *Client) UpdateUserQuietHoursSchedule(ctx context.Context, userIdent string, req UpdateUserQuietHoursScheduleRequest) (UserQuietHoursScheduleResponse, error) {
+	res, err := c.Request(ctx, http.MethodPut, fmt.Sprintf("/api/v2/users/%s/quiet-hours", userIdent), req)
+	if err != nil {
+		return UserQuietHoursScheduleResponse{}, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return UserQuietHoursScheduleResponse{}, ReadBodyAsError(res)
+	}
+	var resp UserQuietHoursScheduleResponse
+	return resp, json.NewDecoder(res.Body).Decode(&resp)
 }
 
 // Users returns all users according to the request parameters. If no parameters are set,

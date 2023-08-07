@@ -10,7 +10,7 @@ coder:
   # - CODER_TLS_ENABLE: set if tls.secretName is not empty.
   # - CODER_TLS_CERT_FILE: set if tls.secretName is not empty.
   # - CODER_TLS_KEY_FILE: set if tls.secretName is not empty.
-  # - CODER_PROMETHEUS_ADDRESS: set to 0.0.0.0:6060 and cannot be changed.
+  # - CODER_PROMETHEUS_ADDRESS: set to 0.0.0.0:2112 and cannot be changed.
   #   Prometheus must still be enabled by setting CODER_PROMETHEUS_ENABLE.
   # - KUBE_POD_IP
   # - CODER_DERP_SERVER_RELAY_URL
@@ -75,7 +75,7 @@ coder:
     workspacePerms: true
     # coder.serviceAccount.enableDeployments -- Provides the service account permission
     # to manage Kubernetes deployments.
-    enableDeployments: false
+    enableDeployments: true
     # coder.serviceAccount.annotations -- The Coder service account annotations.
     annotations: {}
     # coder.serviceAccount.name -- The service account name
@@ -166,11 +166,11 @@ coder:
   resources:
     {}
     # limits:
-    #   cpu: 100m
-    #   memory: 128Mi
+    #   cpu: 2000m
+    #   memory: 4096Mi
     # requests:
-    #   cpu: 100m
-    #   memory: 128Mi
+    #   cpu: 2000m
+    #   memory: 4096Mi
 
   # coder.certs -- CA bundles to mount inside the Coder pod.
   certs:
@@ -276,6 +276,9 @@ coder:
   # for customizing the location of the `coder` binary in your image.
   command:
     - /opt/coder
+
+  # coder.commandArgs -- Set arguments for the entrypoint command of the Coder pod.
+  commandArgs: []
 
 # extraTemplates -- Array of extra objects to deploy with the release. Strings
 # are evaluated as a template and can use template expansions and functions. All

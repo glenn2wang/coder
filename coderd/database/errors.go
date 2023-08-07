@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 
 	"github.com/lib/pq"
@@ -40,16 +41,18 @@ func IsUniqueViolation(err error, uniqueConstraints ...UniqueConstraint) bool {
 func IsQueryCanceledError(err error) bool {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
-		return pqErr.Code.Name() == "query_canceled"
+		return pqErr.Code == "57014" // query_canceled
+	} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
 	}
 
 	return false
 }
 
-func IsStartupLogsLimitError(err error) bool {
+func IsWorkspaceAgentLogsLimitError(err error) bool {
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) {
-		return pqErr.Constraint == "max_startup_logs_length" && pqErr.Table == "workspace_agents"
+		return pqErr.Constraint == "max_logs_length" && pqErr.Table == "workspace_agents"
 	}
 
 	return false

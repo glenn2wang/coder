@@ -15,7 +15,8 @@
         "display_name": "Owner"
       }
     ],
-    "avatar_url": ""
+    "avatar_url": "",
+    "login_type": "password"
   },
   {
     "id": "[second user ID]",
@@ -23,11 +24,12 @@
     "email": "testuser2@coder.com",
     "created_at": "[timestamp]",
     "last_seen_at": "[timestamp]",
-    "status": "active",
+    "status": "dormant",
     "organization_ids": [
       "[first org ID]"
     ],
     "roles": [],
-    "avatar_url": ""
+    "avatar_url": "",
+    "login_type": "password"
   }
 ]

@@ -3,7 +3,7 @@ import Menu from "@mui/material/Menu"
 import { makeStyles } from "@mui/styles"
 import MoreVertOutlined from "@mui/icons-material/MoreVertOutlined"
 import { FC, Fragment, ReactNode, useRef, useState } from "react"
-import { WorkspaceStatus } from "api/typesGenerated"
+import { Workspace, WorkspaceBuildParameter } from "api/typesGenerated"
 import {
   ActionLoadingButton,
   CancelButton,
@@ -12,6 +12,7 @@ import {
   StopButton,
   RestartButton,
   UpdateButton,
+  UnlockButton,
 } from "./Buttons"
 import {
   ButtonMapping,
@@ -24,16 +25,16 @@ import DeleteOutlined from "@mui/icons-material/DeleteOutlined"
 import IconButton from "@mui/material/IconButton"
 
 export interface WorkspaceActionsProps {
-  workspaceStatus: WorkspaceStatus
-  isOutdated: boolean
-  handleStart: () => void
+  workspace: Workspace
+  handleStart: (buildParameters?: WorkspaceBuildParameter[]) => void
   handleStop: () => void
-  handleRestart: () => void
+  handleRestart: (buildParameters?: WorkspaceBuildParameter[]) => void
   handleDelete: () => void
   handleUpdate: () => void
   handleCancel: () => void
   handleSettings: () => void
   handleChangeVersion: () => void
+  handleUnlock: () => void
   isUpdating: boolean
   isRestarting: boolean
   children?: ReactNode
@@ -41,8 +42,7 @@ export interface WorkspaceActionsProps {
 }
 
 export const WorkspaceActions: FC<WorkspaceActionsProps> = ({
-  workspaceStatus,
-  isOutdated,
+  workspace,
   handleStart,
   handleStop,
   handleRestart,
@@ -51,6 +51,7 @@ export const WorkspaceActions: FC<WorkspaceActionsProps> = ({
   handleCancel,
   handleSettings,
   handleChangeVersion,
+  handleUnlock,
   isUpdating,
   isRestarting,
   canChangeVersions,
@@ -60,8 +61,8 @@ export const WorkspaceActions: FC<WorkspaceActionsProps> = ({
     canCancel,
     canAcceptJobs,
     actions: actionsByStatus,
-  } = actionsByWorkspaceStatus(workspaceStatus)
-  const canBeUpdated = isOutdated && canAcceptJobs
+  } = actionsByWorkspaceStatus(workspace, workspace.latest_build.status)
+  const canBeUpdated = workspace.outdated && canAcceptJobs
   const menuTriggerRef = useRef<HTMLButtonElement>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
@@ -71,22 +72,34 @@ export const WorkspaceActions: FC<WorkspaceActionsProps> = ({
     [ButtonTypesEnum.updating]: (
       <UpdateButton loading handleAction={handleUpdate} />
     ),
-    [ButtonTypesEnum.start]: <StartButton handleAction={handleStart} />,
+    [ButtonTypesEnum.start]: (
+      <StartButton workspace={workspace} handleAction={handleStart} />
+    ),
     [ButtonTypesEnum.starting]: (
-      <StartButton loading handleAction={handleStart} />
+      <StartButton loading workspace={workspace} handleAction={handleStart} />
     ),
     [ButtonTypesEnum.stop]: <StopButton handleAction={handleStop} />,
     [ButtonTypesEnum.stopping]: (
       <StopButton loading handleAction={handleStop} />
     ),
-    [ButtonTypesEnum.restart]: <RestartButton handleAction={handleRestart} />,
+    [ButtonTypesEnum.restart]: (
+      <RestartButton workspace={workspace} handleAction={handleRestart} />
+    ),
     [ButtonTypesEnum.restarting]: (
-      <RestartButton loading handleAction={handleRestart} />
+      <RestartButton
+        loading
+        workspace={workspace}
+        handleAction={handleRestart}
+      />
     ),
     [ButtonTypesEnum.deleting]: <ActionLoadingButton label="Deleting" />,
     [ButtonTypesEnum.canceling]: <DisabledButton label="Canceling..." />,
     [ButtonTypesEnum.deleted]: <DisabledButton label="Deleted" />,
     [ButtonTypesEnum.pending]: <ActionLoadingButton label="Pending..." />,
+    [ButtonTypesEnum.unlock]: <UnlockButton handleAction={handleUnlock} />,
+    [ButtonTypesEnum.unlocking]: (
+      <UnlockButton loading handleAction={handleUnlock} />
+    ),
   }
 
   // Returns a function that will execute the action and close the menu

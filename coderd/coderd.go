@@ -43,6 +43,7 @@ import (
 	"github.com/coder/coder/buildinfo"
 	"github.com/coder/coder/coderd/audit"
 	"github.com/coder/coder/coderd/awsidentity"
+	"github.com/coder/coder/coderd/batchstats"
 	"github.com/coder/coder/coderd/database"
 	"github.com/coder/coder/coderd/database/dbauthz"
 	"github.com/coder/coder/coderd/database/pubsub"
@@ -118,13 +119,18 @@ type Options struct {
 	RealIPConfig                   *httpmw.RealIPConfig
 	TrialGenerator                 func(ctx context.Context, email string) error
 	// TLSCertificates is used to mesh DERP servers securely.
-	TLSCertificates       []tls.Certificate
-	TailnetCoordinator    tailnet.Coordinator
-	DERPServer            *derp.Server
-	DERPMap               *tailcfg.DERPMap
-	SwaggerEndpoint       bool
-	SetUserGroups         func(ctx context.Context, tx database.Store, userID uuid.UUID, groupNames []string) error
-	TemplateScheduleStore *atomic.Pointer[schedule.TemplateScheduleStore]
+	TLSCertificates    []tls.Certificate
+	TailnetCoordinator tailnet.Coordinator
+	DERPServer         *derp.Server
+	// BaseDERPMap is used as the base DERP map for all clients and agents.
+	// Proxies are added to this list.
+	BaseDERPMap                 *tailcfg.DERPMap
+	DERPMapUpdateFrequency      time.Duration
+	SwaggerEndpoint             bool
+	SetUserGroups               func(ctx context.Context, tx database.Store, userID uuid.UUID, groupNames []string) error
+	SetUserSiteRoles            func(ctx context.Context, tx database.Store, userID uuid.UUID, roles []string) error
+	TemplateScheduleStore       *atomic.Pointer[schedule.TemplateScheduleStore]
+	UserQuietHoursScheduleStore *atomic.Pointer[schedule.UserQuietHoursScheduleStore]
 	// AppSecurityKey is the crypto key used to sign and encrypt tokens related to
 	// workspace applications. It consists of both a signing and encryption key.
 	AppSecurityKey     workspaceapps.SecurityKey
@@ -155,6 +161,7 @@ type Options struct {
 	HTTPClient *http.Client
 
 	UpdateAgentMetrics func(ctx context.Context, username, workspaceName, agentName string, metrics []agentsdk.AgentMetric)
+	StatsBatcher       *batchstats.Batcher
 }
 
 // @title Coder API
@@ -175,6 +182,8 @@ type Options struct {
 // @in header
 // @name Coder-Session-Token
 // New constructs a Coder API handler.
+//
+//nolint:gocyclo
 func New(options *Options) *API {
 	if options == nil {
 		options = &Options{}
@@ -199,7 +208,7 @@ func New(options *Options) *API {
 		options.Authorizer,
 		options.Logger.Named("authz_querier"),
 	)
-	experiments := initExperiments(
+	experiments := ReadExperiments(
 		options.Logger, options.DeploymentValues.Experiments.Value(),
 	)
 	if options.AppHostname != "" && options.AppHostnameRegex == nil || options.AppHostname == "" && options.AppHostnameRegex != nil {
@@ -234,11 +243,14 @@ func New(options *Options) *API {
 	if options.PrometheusRegistry == nil {
 		options.PrometheusRegistry = prometheus.NewRegistry()
 	}
-	if options.TailnetCoordinator == nil {
-		options.TailnetCoordinator = tailnet.NewCoordinator(options.Logger)
-	}
 	if options.DERPServer == nil {
 		options.DERPServer = derp.NewServer(key.NewNode(), tailnet.Logger(options.Logger.Named("derp")))
+	}
+	if options.DERPMapUpdateFrequency == 0 {
+		options.DERPMapUpdateFrequency = 5 * time.Second
+	}
+	if options.TailnetCoordinator == nil {
+		options.TailnetCoordinator = tailnet.NewCoordinator(options.Logger)
 	}
 	if options.Auditor == nil {
 		options.Auditor = audit.NewNop()
@@ -257,6 +269,14 @@ func New(options *Options) *API {
 			return nil
 		}
 	}
+	if options.SetUserSiteRoles == nil {
+		options.SetUserSiteRoles = func(ctx context.Context, _ database.Store, userID uuid.UUID, roles []string) error {
+			options.Logger.Warn(ctx, "attempted to assign OIDC user roles without enterprise license",
+				slog.F("user_id", userID), slog.F("roles", roles),
+			)
+			return nil
+		}
+	}
 	if options.TemplateScheduleStore == nil {
 		options.TemplateScheduleStore = &atomic.Pointer[schedule.TemplateScheduleStore]{}
 	}
@@ -264,21 +284,16 @@ func New(options *Options) *API {
 		v := schedule.NewAGPLTemplateScheduleStore()
 		options.TemplateScheduleStore.Store(&v)
 	}
-	if options.HealthcheckFunc == nil {
-		options.HealthcheckFunc = func(ctx context.Context, apiKey string) *healthcheck.Report {
-			return healthcheck.Run(ctx, &healthcheck.ReportOptions{
-				DB:        options.Database,
-				AccessURL: options.AccessURL,
-				DERPMap:   options.DERPMap.Clone(),
-				APIKey:    apiKey,
-			})
-		}
+	if options.UserQuietHoursScheduleStore == nil {
+		options.UserQuietHoursScheduleStore = &atomic.Pointer[schedule.UserQuietHoursScheduleStore]{}
 	}
-	if options.HealthcheckTimeout == 0 {
-		options.HealthcheckTimeout = 30 * time.Second
+	if options.UserQuietHoursScheduleStore.Load() == nil {
+		v := schedule.NewAGPLUserQuietHoursScheduleStore()
+		options.UserQuietHoursScheduleStore.Store(&v)
 	}
-	if options.HealthcheckRefresh == 0 {
-		options.HealthcheckRefresh = 10 * time.Minute
+
+	if options.StatsBatcher == nil {
+		panic("developer error: options.StatsBatcher is nil")
 	}
 
 	siteCacheDir := options.CacheDir
@@ -310,6 +325,7 @@ func New(options *Options) *API {
 		Database:      options.Database,
 		SiteFS:        site.FS(),
 		OAuth2Configs: oauthConfigs,
+		DocsURL:       options.DeploymentValues.DocsURL.String(),
 	})
 	staticHandler.Experiments.Store(&experiments)
 
@@ -344,11 +360,12 @@ func New(options *Options) *API {
 			options.AgentInactiveDisconnectTimeout,
 			options.AppSecurityKey,
 		),
-		metricsCache:          metricsCache,
-		Auditor:               atomic.Pointer[audit.Auditor]{},
-		TemplateScheduleStore: options.TemplateScheduleStore,
-		Experiments:           experiments,
-		healthCheckGroup:      &singleflight.Group[string, *healthcheck.Report]{},
+		metricsCache:                metricsCache,
+		Auditor:                     atomic.Pointer[audit.Auditor]{},
+		TemplateScheduleStore:       options.TemplateScheduleStore,
+		UserQuietHoursScheduleStore: options.UserQuietHoursScheduleStore,
+		Experiments:                 experiments,
+		healthCheckGroup:            &singleflight.Group[string, *healthcheck.Report]{},
 	}
 	if options.UpdateCheckOptions != nil {
 		api.updateChecker = updatecheck.New(
@@ -356,6 +373,22 @@ func New(options *Options) *API {
 			options.Logger.Named("update_checker"),
 			*options.UpdateCheckOptions,
 		)
+	}
+	if options.HealthcheckFunc == nil {
+		options.HealthcheckFunc = func(ctx context.Context, apiKey string) *healthcheck.Report {
+			return healthcheck.Run(ctx, &healthcheck.ReportOptions{
+				DB:        options.Database,
+				AccessURL: options.AccessURL,
+				DERPMap:   api.DERPMap(),
+				APIKey:    apiKey,
+			})
+		}
+	}
+	if options.HealthcheckTimeout == 0 {
+		options.HealthcheckTimeout = 30 * time.Second
+	}
+	if options.HealthcheckRefresh == 0 {
+		options.HealthcheckRefresh = 10 * time.Minute
 	}
 
 	var oidcAuthURLParams map[string]string
@@ -369,8 +402,10 @@ func New(options *Options) *API {
 		api.agentProvider, err = NewServerTailnet(api.ctx,
 			options.Logger,
 			options.DERPServer,
-			options.DERPMap,
-			&api.TailnetCoordinator,
+			options.BaseDERPMap,
+			func(context.Context) (tailnet.MultiAgentConn, error) {
+				return (*api.TailnetCoordinator.Load()).ServeMultiAgent(uuid.New()), nil
+			},
 			wsconncache.New(api._dialWorkspaceAgentTailnet, 0),
 		)
 		if err != nil {
@@ -434,6 +469,8 @@ func New(options *Options) *API {
 	derpHandler, api.derpCloseFunc = tailnet.WithWebsocketSupport(api.DERPServer, derpHandler)
 	cors := httpmw.Cors(options.DeploymentValues.Dangerous.AllowAllCors.Value())
 	prometheusMW := httpmw.Prometheus(options.PrometheusRegistry)
+
+	api.statsBatcher = options.StatsBatcher
 
 	r.Use(
 		httpmw.Recover(api.Logger),
@@ -522,6 +559,10 @@ func New(options *Options) *API {
 		r.Group(func(r chi.Router) {
 			r.Use(apiKeyMiddleware)
 			r.Get("/regions", api.regions)
+		})
+		r.Route("/derp-map", func(r chi.Router) {
+			// r.Use(apiKeyMiddleware)
+			r.Get("/", api.derpMapUpdates)
 		})
 		r.Route("/deployment", func(r chi.Router) {
 			r.Use(apiKeyMiddleware)
@@ -745,7 +786,8 @@ func New(options *Options) *API {
 				// New agents will use /me/manifest instead.
 				r.Get("/metadata", api.workspaceAgentManifest)
 				r.Post("/startup", api.postWorkspaceAgentStartup)
-				r.Patch("/startup-logs", api.patchWorkspaceAgentStartupLogs)
+				r.Patch("/startup-logs", api.patchWorkspaceAgentLogsDeprecated)
+				r.Patch("/logs", api.patchWorkspaceAgentLogs)
 				r.Post("/app-health", api.postWorkspaceAppHealth)
 				r.Get("/gitauth", api.workspaceAgentsGitAuth)
 				r.Get("/gitsshkey", api.agentGitSSHKey)
@@ -769,7 +811,8 @@ func New(options *Options) *API {
 				)
 				r.Get("/", api.workspaceAgent)
 				r.Get("/watch-metadata", api.watchWorkspaceAgentMetadata)
-				r.Get("/startup-logs", api.workspaceAgentStartupLogs)
+				r.Get("/startup-logs", api.workspaceAgentLogsDeprecated)
+				r.Get("/logs", api.workspaceAgentLogs)
 				r.Get("/listening-ports", api.workspaceAgentListeningPorts)
 				r.Get("/connection", api.workspaceAgentConnection)
 				r.Get("/coordinate", api.workspaceAgentClientCoordinate)
@@ -838,6 +881,8 @@ func New(options *Options) *API {
 		r.Route("/insights", func(r chi.Router) {
 			r.Use(apiKeyMiddleware)
 			r.Get("/daus", api.deploymentDAUs)
+			r.Get("/user-latency", api.insightsUserLatency)
+			r.Get("/templates", api.insightsTemplates)
 		})
 		r.Route("/debug", func(r chi.Router) {
 			r.Use(
@@ -927,6 +972,11 @@ type API struct {
 	// TemplateScheduleStore is a pointer to an atomic pointer because this is
 	// passed to another struct, and we want them all to be the same reference.
 	TemplateScheduleStore *atomic.Pointer[schedule.TemplateScheduleStore]
+	// UserQuietHoursScheduleStore is a pointer to an atomic pointer for the
+	// same reason as TemplateScheduleStore.
+	UserQuietHoursScheduleStore *atomic.Pointer[schedule.UserQuietHoursScheduleStore]
+	// DERPMapper mutates the DERPMap to include workspace proxies.
+	DERPMapper atomic.Pointer[func(derpMap *tailcfg.DERPMap) *tailcfg.DERPMap]
 
 	HTTPAuth *HTTPAuthorizer
 
@@ -954,6 +1004,8 @@ type API struct {
 
 	healthCheckGroup *singleflight.Group[string, *healthcheck.Report]
 	healthCheckCache atomic.Pointer[healthcheck.Report]
+
+	statsBatcher *batchstats.Batcher
 }
 
 // Close waits for all WebSocket connections to drain before returning.
@@ -1037,22 +1089,23 @@ func (api *API) CreateInMemoryProvisionerDaemon(ctx context.Context, debounce ti
 	mux := drpcmux.New()
 
 	err = proto.DRPCRegisterProvisionerDaemon(mux, &provisionerdserver.Server{
-		AccessURL:             api.AccessURL,
-		ID:                    daemon.ID,
-		OIDCConfig:            api.OIDCConfig,
-		Database:              api.Database,
-		Pubsub:                api.Pubsub,
-		Provisioners:          daemon.Provisioners,
-		GitAuthConfigs:        api.GitAuthConfigs,
-		Telemetry:             api.Telemetry,
-		Tracer:                tracer,
-		Tags:                  tags,
-		QuotaCommitter:        &api.QuotaCommitter,
-		Auditor:               &api.Auditor,
-		TemplateScheduleStore: api.TemplateScheduleStore,
-		AcquireJobDebounce:    debounce,
-		Logger:                api.Logger.Named(fmt.Sprintf("provisionerd-%s", daemon.Name)),
-		DeploymentValues:      api.DeploymentValues,
+		AccessURL:                   api.AccessURL,
+		ID:                          daemon.ID,
+		OIDCConfig:                  api.OIDCConfig,
+		Database:                    api.Database,
+		Pubsub:                      api.Pubsub,
+		Provisioners:                daemon.Provisioners,
+		GitAuthConfigs:              api.GitAuthConfigs,
+		Telemetry:                   api.Telemetry,
+		Tracer:                      tracer,
+		Tags:                        tags,
+		QuotaCommitter:              &api.QuotaCommitter,
+		Auditor:                     &api.Auditor,
+		TemplateScheduleStore:       api.TemplateScheduleStore,
+		UserQuietHoursScheduleStore: api.UserQuietHoursScheduleStore,
+		AcquireJobDebounce:          debounce,
+		Logger:                      api.Logger.Named(fmt.Sprintf("provisionerd-%s", daemon.Name)),
+		DeploymentValues:            api.DeploymentValues,
 	})
 	if err != nil {
 		return nil, err
@@ -1080,8 +1133,17 @@ func (api *API) CreateInMemoryProvisionerDaemon(ctx context.Context, debounce ti
 	return proto.NewDRPCProvisionerDaemonClient(clientSession), nil
 }
 
+func (api *API) DERPMap() *tailcfg.DERPMap {
+	fn := api.DERPMapper.Load()
+	if fn != nil {
+		return (*fn)(api.Options.BaseDERPMap)
+	}
+
+	return api.Options.BaseDERPMap
+}
+
 // nolint:revive
-func initExperiments(log slog.Logger, raw []string) codersdk.Experiments {
+func ReadExperiments(log slog.Logger, raw []string) codersdk.Experiments {
 	exps := make([]codersdk.Experiment, 0, len(raw))
 	for _, v := range raw {
 		switch v {

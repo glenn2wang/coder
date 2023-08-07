@@ -519,11 +519,13 @@ export const startWorkspace = (
   workspaceId: string,
   templateVersionId: string,
   logLevel?: TypesGen.CreateWorkspaceBuildRequest["log_level"],
+  buildParameters?: TypesGen.WorkspaceBuildParameter[],
 ) =>
   postWorkspaceBuild(workspaceId, {
     transition: "start",
     template_version_id: templateVersionId,
     log_level: logLevel,
+    rich_parameter_values: buildParameters,
   })
 export const stopWorkspace = (
   workspaceId: string,
@@ -552,7 +554,28 @@ export const cancelWorkspaceBuild = async (
   return response.data
 }
 
-export const restartWorkspace = async (workspace: TypesGen.Workspace) => {
+export const updateWorkspaceLock = async (
+  workspaceId: string,
+  lock: boolean,
+): Promise<TypesGen.Workspace> => {
+  const data: TypesGen.UpdateWorkspaceLock = {
+    lock: lock,
+  }
+
+  const response = await axios.put(
+    `/api/v2/workspaces/${workspaceId}/lock`,
+    data,
+  )
+  return response.data
+}
+
+export const restartWorkspace = async ({
+  workspace,
+  buildParameters,
+}: {
+  workspace: TypesGen.Workspace
+  buildParameters?: TypesGen.WorkspaceBuildParameter[]
+}) => {
   const stopBuild = await stopWorkspace(workspace.id)
   const awaitedStopBuild = await waitForBuild(stopBuild)
 
@@ -564,6 +587,8 @@ export const restartWorkspace = async (workspace: TypesGen.Workspace) => {
   const startBuild = await startWorkspace(
     workspace.id,
     workspace.latest_build.template_version_id,
+    undefined,
+    buildParameters,
   )
   await waitForBuild(startBuild)
 }
@@ -765,11 +790,11 @@ export const getWorkspaceBuildLogs = async (
   return response.data
 }
 
-export const getWorkspaceAgentStartupLogs = async (
+export const getWorkspaceAgentLogs = async (
   agentID: string,
-): Promise<TypesGen.WorkspaceAgentStartupLog[]> => {
-  const response = await axios.get<TypesGen.WorkspaceAgentStartupLog[]>(
-    `/api/v2/workspaceagents/${agentID}/startup-logs`,
+): Promise<TypesGen.WorkspaceAgentLog[]> => {
+  const response = await axios.get<TypesGen.WorkspaceAgentLog[]>(
+    `/api/v2/workspaceagents/${agentID}/logs`,
   )
   return response.data
 }
@@ -856,6 +881,18 @@ export const getDeploymentDAUs = async (
   offset = new Date().getTimezoneOffset() / 60,
 ): Promise<TypesGen.DAUsResponse> => {
   const response = await axios.get(`/api/v2/insights/daus?tz_offset=${offset}`)
+  return response.data
+}
+
+export const getTemplateACLAvailable = async (
+  templateId: string,
+  options: TypesGen.UsersRequest,
+): Promise<TypesGen.ACLAvailable> => {
+  const url = getURLWithSearchParams(
+    `/api/v2/templates/${templateId}/acl/available`,
+    options,
+  )
+  const response = await axios.get(url.toString())
   return response.data
 }
 
@@ -1262,21 +1299,21 @@ export const watchBuildLogsByTemplateVersionId = (
   return socket
 }
 
-type WatchStartupLogsOptions = {
+type WatchWorkspaceAgentLogsOptions = {
   after: number
-  onMessage: (logs: TypesGen.WorkspaceAgentStartupLog[]) => void
+  onMessage: (logs: TypesGen.WorkspaceAgentLog[]) => void
   onDone: () => void
   onError: (error: Error) => void
 }
 
-export const watchStartupLogs = (
+export const watchWorkspaceAgentLogs = (
   agentId: string,
-  { after, onMessage, onDone, onError }: WatchStartupLogsOptions,
+  { after, onMessage, onDone, onError }: WatchWorkspaceAgentLogsOptions,
 ) => {
   // WebSocket compression in Safari (confirmed in 16.5) is broken when
   // the server sends large messages. The following error is seen:
   //
-  //   WebSocket connection to 'wss://.../startup-logs?follow&after=0' failed: The operation couldn’t be completed. Protocol error
+  //   WebSocket connection to 'wss://.../logs?follow&after=0' failed: The operation couldn’t be completed. Protocol error
   //
   const noCompression =
     userAgentParser(navigator.userAgent).browser.name === "Safari"
@@ -1285,11 +1322,11 @@ export const watchStartupLogs = (
 
   const proto = location.protocol === "https:" ? "wss:" : "ws:"
   const socket = new WebSocket(
-    `${proto}//${location.host}/api/v2/workspaceagents/${agentId}/startup-logs?follow&after=${after}${noCompression}`,
+    `${proto}//${location.host}/api/v2/workspaceagents/${agentId}/logs?follow&after=${after}${noCompression}`,
   )
   socket.binaryType = "blob"
   socket.addEventListener("message", (event) => {
-    const logs = JSON.parse(event.data) as TypesGen.WorkspaceAgentStartupLog[]
+    const logs = JSON.parse(event.data) as TypesGen.WorkspaceAgentLog[]
     onMessage(logs)
   })
   socket.addEventListener("error", () => {
@@ -1345,4 +1382,53 @@ export const issueReconnectingPTYSignedToken = async (
     params,
   )
   return response.data
+}
+
+export const getWorkspaceParameters = async (workspace: TypesGen.Workspace) => {
+  const latestBuild = workspace.latest_build
+  const [templateVersionRichParameters, buildParameters] = await Promise.all([
+    getTemplateVersionRichParameters(latestBuild.template_version_id),
+    getWorkspaceBuildParameters(latestBuild.id),
+  ])
+  return {
+    templateVersionRichParameters,
+    buildParameters,
+  }
+}
+
+type InsightsFilter = {
+  start_time: string
+  end_time: string
+  template_ids: string
+}
+
+export const getInsightsUserLatency = async (
+  filters: InsightsFilter,
+): Promise<TypesGen.UserLatencyInsightsResponse> => {
+  const params = new URLSearchParams(filters)
+  const response = await axios.get(`/api/v2/insights/user-latency?${params}`)
+  return response.data
+}
+
+export const getInsightsTemplate = async (
+  filters: InsightsFilter,
+): Promise<TypesGen.TemplateInsightsResponse> => {
+  const params = new URLSearchParams({
+    ...filters,
+    interval: "day",
+  })
+  const response = await axios.get(`/api/v2/insights/templates?${params}`)
+  return response.data
+}
+
+export const getHealth = () => {
+  return axios.get<{
+    healthy: boolean
+    time: string
+    coder_version: string
+    derp: { healthy: boolean }
+    access_url: { healthy: boolean }
+    websocket: { healthy: boolean }
+    database: { healthy: boolean }
+  }>("/api/v2/debug/health")
 }

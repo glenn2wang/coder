@@ -2,9 +2,12 @@ package wsproxy
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -12,9 +15,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/hashicorp/go-multierror"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/xerrors"
+	"tailscale.com/derp"
+	"tailscale.com/derp/derphttp"
+	"tailscale.com/types/key"
 
 	"cdr.dev/slog"
 	"github.com/coder/coder/buildinfo"
@@ -25,12 +32,15 @@ import (
 	"github.com/coder/coder/coderd/workspaceapps"
 	"github.com/coder/coder/coderd/wsconncache"
 	"github.com/coder/coder/codersdk"
+	"github.com/coder/coder/enterprise/derpmesh"
 	"github.com/coder/coder/enterprise/wsproxy/wsproxysdk"
 	"github.com/coder/coder/site"
+	"github.com/coder/coder/tailnet"
 )
 
 type Options struct {
-	Logger slog.Logger
+	Logger      slog.Logger
+	Experiments codersdk.Experiments
 
 	HTTPClient *http.Client
 	// DashboardURL is the URL of the primary coderd instance.
@@ -50,14 +60,19 @@ type Options struct {
 	// options.AppHostname is set.
 	AppHostnameRegex *regexp.Regexp
 
-	RealIPConfig *httpmw.RealIPConfig
-
+	RealIPConfig       *httpmw.RealIPConfig
 	Tracing            trace.TracerProvider
 	PrometheusRegistry *prometheus.Registry
+	TLSCertificates    []tls.Certificate
 
-	APIRateLimit     int
-	SecureAuthCookie bool
-	DisablePathApps  bool
+	APIRateLimit           int
+	SecureAuthCookie       bool
+	DisablePathApps        bool
+	DERPEnabled            bool
+	DERPServerRelayAddress string
+	// DERPOnly determines whether this proxy only provides DERP and does not
+	// provide access to workspace apps/terminal.
+	DERPOnly bool
 
 	ProxySessionToken string
 	// AllowAllCors will set all CORs headers to '*'.
@@ -101,12 +116,14 @@ type Server struct {
 	// the moon's token.
 	SDKClient *wsproxysdk.Client
 
-	// TODO: Missing:
-	//		- derpserver
+	// DERP
+	derpMesh *derpmesh.Mesh
 
 	// Used for graceful shutdown. Required for the dialer.
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx           context.Context
+	cancel        context.CancelFunc
+	derpCloseFunc func()
+	registerDone  <-chan struct{}
 }
 
 // New creates a new workspace proxy server. This requires a primary coderd
@@ -141,31 +158,107 @@ func New(ctx context.Context, opts *Options) (*Server, error) {
 		return nil, xerrors.Errorf("%q is a workspace proxy, not a primary coderd instance", opts.DashboardURL)
 	}
 
-	regResp, err := client.RegisterWorkspaceProxy(ctx, wsproxysdk.RegisterWorkspaceProxyRequest{
-		AccessURL:        opts.AccessURL.String(),
-		WildcardHostname: opts.AppHostname,
+	meshRootCA := x509.NewCertPool()
+	for _, certificate := range opts.TLSCertificates {
+		for _, certificatePart := range certificate.Certificate {
+			certificate, err := x509.ParseCertificate(certificatePart)
+			if err != nil {
+				return nil, xerrors.Errorf("parse certificate %s: %w", certificate.Subject.CommonName, err)
+			}
+			meshRootCA.AddCert(certificate)
+		}
+	}
+	// This TLS configuration spoofs access from the access URL hostname
+	// assuming that the certificates provided will cover that hostname.
+	//
+	// Replica sync and DERP meshing require accessing replicas via their
+	// internal IP addresses, and if TLS is configured we use the same
+	// certificates.
+	meshTLSConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: opts.TLSCertificates,
+		RootCAs:      meshRootCA,
+		ServerName:   opts.AccessURL.Hostname(),
+	}
+
+	derpServer := derp.NewServer(key.NewNode(), tailnet.Logger(opts.Logger.Named("net.derp")))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r := chi.NewRouter()
+	s := &Server{
+		Options:            opts,
+		Handler:            r,
+		DashboardURL:       opts.DashboardURL,
+		Logger:             opts.Logger.Named("net.workspace-proxy"),
+		TracerProvider:     opts.Tracing,
+		PrometheusRegistry: opts.PrometheusRegistry,
+		SDKClient:          client,
+		derpMesh:           derpmesh.New(opts.Logger.Named("net.derpmesh"), derpServer, meshTLSConfig),
+		ctx:                ctx,
+		cancel:             cancel,
+	}
+
+	// Register the workspace proxy with the primary coderd instance and start a
+	// goroutine to periodically re-register.
+	replicaID := uuid.New()
+	osHostname, err := os.Hostname()
+	if err != nil {
+		return nil, xerrors.Errorf("get OS hostname: %w", err)
+	}
+	regResp, registerDone, err := client.RegisterWorkspaceProxyLoop(ctx, wsproxysdk.RegisterWorkspaceProxyLoopOpts{
+		Logger: opts.Logger,
+		Request: wsproxysdk.RegisterWorkspaceProxyRequest{
+			AccessURL:           opts.AccessURL.String(),
+			WildcardHostname:    opts.AppHostname,
+			DerpEnabled:         opts.DERPEnabled,
+			DerpOnly:            opts.DERPOnly,
+			ReplicaID:           replicaID,
+			ReplicaHostname:     osHostname,
+			ReplicaError:        "",
+			ReplicaRelayAddress: opts.DERPServerRelayAddress,
+			Version:             buildinfo.Version(),
+		},
+		MutateFn:   s.mutateRegister,
+		CallbackFn: s.handleRegister,
+		FailureFn:  s.handleRegisterFailure,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("register proxy: %w", err)
 	}
+	s.registerDone = registerDone
+	err = s.handleRegister(ctx, regResp)
+	if err != nil {
+		return nil, xerrors.Errorf("handle register: %w", err)
+	}
+	derpServer.SetMeshKey(regResp.DERPMeshKey)
 
 	secKey, err := workspaceapps.KeyFromString(regResp.AppSecurityKey)
 	if err != nil {
 		return nil, xerrors.Errorf("parse app security key: %w", err)
 	}
 
-	r := chi.NewRouter()
-	ctx, cancel := context.WithCancel(context.Background())
-	s := &Server{
-		Options:            opts,
-		Handler:            r,
-		DashboardURL:       opts.DashboardURL,
-		Logger:             opts.Logger.Named("workspace-proxy"),
-		TracerProvider:     opts.Tracing,
-		PrometheusRegistry: opts.PrometheusRegistry,
-		SDKClient:          client,
-		ctx:                ctx,
-		cancel:             cancel,
+	connInfo, err := client.SDKClient.WorkspaceAgentConnectionInfoGeneric(ctx)
+	if err != nil {
+		return nil, xerrors.Errorf("get derpmap: %w", err)
+	}
+
+	var agentProvider workspaceapps.AgentProvider
+	if opts.Experiments.Enabled(codersdk.ExperimentSingleTailnet) {
+		stn, err := coderd.NewServerTailnet(ctx,
+			s.Logger,
+			nil,
+			connInfo.DERPMap,
+			s.DialCoordinator,
+			wsconncache.New(s.DialWorkspaceAgent, 0),
+		)
+		if err != nil {
+			return nil, xerrors.Errorf("create server tailnet: %w", err)
+		}
+		agentProvider = stn
+	} else {
+		agentProvider = &wsconncache.AgentProvider{
+			Cache: wsconncache.New(s.DialWorkspaceAgent, 0),
+		}
 	}
 
 	s.AppServer = &workspaceapps.Server{
@@ -185,13 +278,13 @@ func New(ctx context.Context, opts *Options) (*Server, error) {
 		},
 		AppSecurityKey: secKey,
 
-		// TODO: Convert wsproxy to use coderd.ServerTailnet.
-		AgentProvider: &wsconncache.AgentProvider{
-			Cache: wsconncache.New(s.DialWorkspaceAgent, 0),
-		},
+		AgentProvider:    agentProvider,
 		DisablePathApps:  opts.DisablePathApps,
 		SecureAuthCookie: opts.SecureAuthCookie,
 	}
+
+	derpHandler := derphttp.Handler(derpServer)
+	derpHandler, s.derpCloseFunc = tailnet.WithWebsocketSupport(derpServer, derpHandler)
 
 	// The primary coderd dashboard needs to make some GET requests to
 	// the workspace proxies to check latency.
@@ -238,10 +331,51 @@ func New(ctx context.Context, opts *Options) (*Server, error) {
 	)
 
 	// Attach workspace apps routes.
-	r.Group(func(r chi.Router) {
-		r.Use(apiRateLimiter)
-		s.AppServer.Attach(r)
-	})
+	if !opts.DERPOnly {
+		r.Group(func(r chi.Router) {
+			r.Use(apiRateLimiter)
+			s.AppServer.Attach(r)
+		})
+	} else {
+		r.Group(func(r chi.Router) {
+			derpOnlyHandler := func(rw http.ResponseWriter, r *http.Request) {
+				site.RenderStaticErrorPage(rw, r, site.ErrorPageData{
+					Title:      "Head to the Dashboard",
+					Status:     http.StatusBadRequest,
+					HideStatus: true,
+					Description: "This workspace proxy is DERP-only and cannot be used for browser connections. " +
+						"Please use a different region directly from the dashboard. Click to be redirected!",
+					RetryEnabled: false,
+					DashboardURL: opts.DashboardURL.String(),
+				})
+			}
+			serveDerpOnlyHandler := func(r chi.Router) {
+				r.HandleFunc("/*", derpOnlyHandler)
+			}
+
+			r.Route("/%40{user}/{workspace_and_agent}/apps/{workspaceapp}", serveDerpOnlyHandler)
+			r.Route("/@{user}/{workspace_and_agent}/apps/{workspaceapp}", serveDerpOnlyHandler)
+			r.Get("/api/v2/workspaceagents/{workspaceagent}/pty", derpOnlyHandler)
+		})
+	}
+
+	if opts.DERPEnabled {
+		r.Route("/derp", func(r chi.Router) {
+			r.Get("/", derpHandler.ServeHTTP)
+			// This is used when UDP is blocked, and latency must be checked via HTTP(s).
+			r.Get("/latency-check", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+		})
+	} else {
+		r.Route("/derp", func(r chi.Router) {
+			r.HandleFunc("/*", func(rw http.ResponseWriter, r *http.Request) {
+				httpapi.Write(ctx, rw, http.StatusBadRequest, codersdk.Response{
+					Message: "DERP is disabled on this proxy.",
+				})
+			})
+		})
+	}
 
 	r.Get("/api/v2/buildinfo", s.buildInfo)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("OK")) })
@@ -272,17 +406,57 @@ func New(ctx context.Context, opts *Options) (*Server, error) {
 func (s *Server) Close() error {
 	s.cancel()
 
-	// A timeout to prevent the SDK from blocking the server shutdown.
-	tmp, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	_ = s.SDKClient.WorkspaceProxyGoingAway(tmp)
-	_ = s.AppServer.AgentProvider.Close()
-
-	return s.AppServer.Close()
+	var err error
+	registerDoneWaitTicker := time.NewTicker(11 * time.Second) // the attempt timeout is 10s
+	select {
+	case <-registerDoneWaitTicker.C:
+		err = multierror.Append(err, xerrors.New("timed out waiting for registerDone"))
+	case <-s.registerDone:
+	}
+	s.derpCloseFunc()
+	appServerErr := s.AppServer.Close()
+	if appServerErr != nil {
+		err = multierror.Append(err, appServerErr)
+	}
+	agentProviderErr := s.AppServer.AgentProvider.Close()
+	if agentProviderErr != nil {
+		err = multierror.Append(err, agentProviderErr)
+	}
+	s.SDKClient.SDKClient.HTTPClient.CloseIdleConnections()
+	return err
 }
 
 func (s *Server) DialWorkspaceAgent(id uuid.UUID) (*codersdk.WorkspaceAgentConn, error) {
 	return s.SDKClient.DialWorkspaceAgent(s.ctx, id, nil)
+}
+
+func (*Server) mutateRegister(_ *wsproxysdk.RegisterWorkspaceProxyRequest) {
+	// TODO: we should probably ping replicas similarly to the replicasync
+	// package in the primary and update req.ReplicaError accordingly.
+}
+
+func (s *Server) handleRegister(_ context.Context, res wsproxysdk.RegisterWorkspaceProxyResponse) error {
+	addresses := make([]string, len(res.SiblingReplicas))
+	for i, replica := range res.SiblingReplicas {
+		addresses[i] = replica.RelayAddress
+	}
+	s.derpMesh.SetAddresses(addresses, false)
+
+	return nil
+}
+
+func (s *Server) handleRegisterFailure(err error) {
+	if s.ctx.Err() != nil {
+		return
+	}
+	s.Logger.Fatal(s.ctx,
+		"failed to periodically re-register workspace proxy with primary Coder deployment",
+		slog.Error(err),
+	)
+}
+
+func (s *Server) DialCoordinator(ctx context.Context) (tailnet.MultiAgentConn, error) {
+	return s.SDKClient.DialCoordinator(ctx)
 }
 
 func (s *Server) buildInfo(rw http.ResponseWriter, r *http.Request) {

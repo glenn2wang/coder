@@ -241,3 +241,24 @@ FROM
 	users
 WHERE
 	id = @user_id;
+
+-- name: UpdateUserQuietHoursSchedule :one
+UPDATE
+	users
+SET
+	quiet_hours_schedule = $2
+WHERE
+	id = $1
+RETURNING *;
+
+
+-- name: UpdateInactiveUsersToDormant :many
+UPDATE
+    users
+SET
+    status = 'dormant'::user_status,
+	updated_at = @updated_at
+WHERE
+    last_seen_at < @last_seen_after :: timestamp
+    AND status = 'active'::user_status
+RETURNING id, email, last_seen_at;

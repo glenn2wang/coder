@@ -84,9 +84,11 @@ type CreateTemplateRequest struct {
 	// DefaultTTLMillis allows optionally specifying the default TTL
 	// for all workspaces created from this template.
 	DefaultTTLMillis *int64 `json:"default_ttl_ms,omitempty"`
-	// MaxTTLMillis allows optionally specifying the max lifetime for
-	// workspaces created from this template.
+	// TODO(@dean): remove max_ttl once restart_requirement is matured
 	MaxTTLMillis *int64 `json:"max_ttl_ms,omitempty"`
+	// RestartRequirement allows optionally specifying the restart requirement
+	// for workspaces created from this template. This is an enterprise feature.
+	RestartRequirement *TemplateRestartRequirement `json:"restart_requirement,omitempty"`
 
 	// Allow users to cancel in-progress workspace jobs.
 	// *bool as the default value is "true".
@@ -147,10 +149,11 @@ func (c *Client) Organization(ctx context.Context, id uuid.UUID) (Organization, 
 	return organization, json.NewDecoder(res.Body).Decode(&organization)
 }
 
-// ProvisionerDaemonsByOrganization returns provisioner daemons available for an organization.
+// ProvisionerDaemons returns provisioner daemons available.
 func (c *Client) ProvisionerDaemons(ctx context.Context) ([]ProvisionerDaemon, error) {
 	res, err := c.Request(ctx, http.MethodGet,
-		"/api/v2/provisionerdaemons",
+		// TODO: the organization path parameter is currently ignored.
+		"/api/v2/organizations/default/provisionerdaemons",
 		nil,
 	)
 	if err != nil {

@@ -54,7 +54,7 @@ func (q *sqlQuerier) GetAuthorizedTemplates(ctx context.Context, arg GetTemplate
 		pq.Array(arg.IDs),
 	)
 	if err != nil {
-		return nil, xerrors.Errorf("query context: %w", err)
+		return nil, err
 	}
 	defer rows.Close()
 	var items []Template
@@ -83,16 +83,20 @@ func (q *sqlQuerier) GetAuthorizedTemplates(ctx context.Context, arg GetTemplate
 			&i.FailureTTL,
 			&i.InactivityTTL,
 			&i.LockedTTL,
+			&i.RestartRequirementDaysOfWeek,
+			&i.RestartRequirementWeeks,
+			&i.CreatedByAvatarURL,
+			&i.CreatedByUsername,
 		); err != nil {
-			return nil, xerrors.Errorf("scan: %w", err)
+			return nil, err
 		}
 		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
-		return nil, xerrors.Errorf("close: %w", err)
+		return nil, err
 	}
 	if err := rows.Err(); err != nil {
-		return nil, xerrors.Errorf("rows err: %w", err)
+		return nil, err
 	}
 	return items, nil
 }
@@ -209,10 +213,11 @@ func (q *sqlQuerier) GetAuthorizedWorkspaces(ctx context.Context, arg GetWorkspa
 		arg.OwnerID,
 		arg.OwnerUsername,
 		arg.TemplateName,
-		pq.Array(arg.TemplateIds),
+		pq.Array(arg.TemplateIDs),
 		arg.Name,
 		arg.HasAgent,
 		arg.AgentInactiveDisconnectTimeoutSeconds,
+		arg.LockedAt,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -236,6 +241,7 @@ func (q *sqlQuerier) GetAuthorizedWorkspaces(ctx context.Context, arg GetWorkspa
 			&i.Ttl,
 			&i.LastUsedAt,
 			&i.LockedAt,
+			&i.DeletingAt,
 			&i.TemplateName,
 			&i.TemplateVersionID,
 			&i.TemplateVersionName,
@@ -302,6 +308,7 @@ func (q *sqlQuerier) GetAuthorizedUsers(ctx context.Context, arg GetUsersParams,
 			&i.AvatarURL,
 			&i.Deleted,
 			&i.LastSeenAt,
+			&i.QuietHoursSchedule,
 			&i.Count,
 		); err != nil {
 			return nil, err
