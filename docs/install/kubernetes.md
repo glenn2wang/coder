@@ -7,14 +7,10 @@ to log in and manage templates.
 
 ## Install Coder with Helm
 
-> **Warning**: Helm support is new and not yet complete. There may be changes
-> to the Helm chart between releases which require manual values updates. Please
-> file an issue if you run into any issues.
-
 1. Create a namespace for Coder, such as `coder`:
 
    ```console
-   $ kubectl create namespace coder
+   kubectl create namespace coder
    ```
 
 1. Create a PostgreSQL deployment. Coder does not manage a database server for
@@ -57,12 +53,6 @@ to log in and manage templates.
    [Postgres operator](https://github.com/zalando/postgres-operator) to
    manage PostgreSQL deployments on your Kubernetes cluster.
 
-1. Add the Coder Helm repo:
-
-   ```console
-   helm repo add coder-v2 https://helm.coder.com/v2
-   ```
-
 1. Create a secret with the database URL:
 
    ```console
@@ -70,6 +60,12 @@ to log in and manage templates.
    # change to the proper URL.
    kubectl create secret generic coder-db-url -n coder \
       --from-literal=url="postgres://coder:coder@coder-db-postgresql.coder.svc.cluster.local:5432/coder?sslmode=disable"
+   ```
+
+1. Add the Coder Helm repo:
+
+   ```console
+   helm repo add coder-v2 https://helm.coder.com/v2
    ```
 
 1. Create a `values.yaml` with the configuration settings you'd like for your
@@ -112,20 +108,52 @@ to log in and manage templates.
    > [values.yaml](https://github.com/coder/coder/blob/main/helm/values.yaml)
    > file directly.
 
-   If you are deploying Coder on AWS EKS and service is set to `LoadBalancer`, AWS will default to the Classic load balancer. The load balancer external IP will be stuck in a pending status unless sessionAffinity is set to None.
+1. Run the following command to install the chart in your cluster.
 
-   ```yaml
-   coder:
-     service:
-       type: LoadBalancer
-       sessionAffinity: None
+   ```console
+   helm install coder coder-v2/coder \
+       --namespace coder \
+       --values values.yaml
    ```
+
+   You can watch Coder start up by running `kubectl get pods -n coder`. Once Coder has
+   started, the `coder-*` pods should enter the `Running` state.
+
+1. Log in to Coder
+
+   Use `kubectl get svc -n coder` to get the IP address of the
+   LoadBalancer. Visit this in the browser to set up your first account.
+
+   If you do not have a domain, you should set `CODER_ACCESS_URL`
+   to this URL in the Helm chart and upgrade Coder (see below).
+   This allows workspaces to connect to the proper Coder URL.
+
+## Upgrading Coder via Helm
+
+To upgrade Coder in the future or change values,
+you can run the following command:
+
+```console
+helm repo update
+helm upgrade coder coder-v2/coder \
+  --namespace coder \
+  -f values.yaml
+```
 
 ## Load balancing considerations
 
 ### AWS
 
-AWS however recommends a Network load balancer in lieu of the Classic load balancer. Use the following `values.yaml` settings to request a Network load balancer:
+If you are deploying Coder on AWS EKS and service is set to `LoadBalancer`, AWS will default to the Classic load balancer. The load balancer external IP will be stuck in a pending status unless sessionAffinity is set to None.
+
+```yaml
+coder:
+  service:
+    type: LoadBalancer
+    sessionAffinity: None
+```
+
+AWS recommends a Network load balancer in lieu of the Classic load balancer. Use the following `values.yaml` settings to request a Network load balancer:
 
 ```yaml
 coder:
@@ -152,26 +180,6 @@ coder:
       value: 10.0.0.1/8 # this will be the CIDR range of your Load Balancer IP address
 ```
 
-1. Run the following command to install the chart in your cluster.
-
-   ```console
-   helm install coder coder-v2/coder \
-       --namespace coder \
-       --values values.yaml
-   ```
-
-   You can watch Coder start up by running `kubectl get pods -n coder`. Once Coder has
-   started, the `coder-*` pods should enter the `Running` state.
-
-1. Log in to Coder
-
-   Use `kubectl get svc -n coder` to get the IP address of the
-   LoadBalancer. Visit this in the browser to set up your first account.
-
-   If you do not have a domain, you should set `CODER_ACCESS_URL`
-   to this URL in the Helm chart and upgrade Coder (see below).
-   This allows workspaces to connect to the proper Coder URL.
-
 ### Azure
 
 In certain enterprise environments, the [Azure Application Gateway](https://learn.microsoft.com/en-us/azure/application-gateway/ingress-controller-overview) was needed. The Application Gateway supports:
@@ -179,17 +187,38 @@ In certain enterprise environments, the [Azure Application Gateway](https://lear
 - Websocket traffic (required for workspace connections)
 - TLS termination
 
-## Upgrading Coder via Helm
+## PostgreSQL Certificates
 
-To upgrade Coder in the future or change values,
-you can run the following command:
+Your organization may require connecting to the database instance over SSL. To supply
+Coder with the appropriate certificates, and have it connect over SSL, follow the steps below:
+
+1. Create the certificate as a secret in your Kubernetes cluster, if not already present:
 
 ```console
-helm repo update
-helm upgrade coder coder-v2/coder \
-  --namespace coder \
-  -f values.yaml
+$ kubectl create secret tls postgres-certs -n coder --key="postgres.key" --cert="postgres.crt"
 ```
+
+1. Define the secret volume and volumeMounts in the Helm chart:
+
+```yaml
+coder:
+  volumes:
+    - name: "pg-certs-mount"
+      secret:
+        secretName: "postgres-certs"
+  volumeMounts:
+    - name: "pg-certs-mount"
+      mountPath: "$HOME/.postgresql"
+      readOnly: true
+```
+
+1. Lastly, your PG connection URL will look like:
+
+```console
+postgres://<user>:<password>@databasehost:<port>/<db-name>?sslmode=require&sslcert=$HOME/.postgresql/postgres.crt&sslkey=$HOME/.postgresql/postgres.key"
+```
+
+> More information on connecting to PostgreSQL databases using certificates can be found [here](https://www.postgresql.org/docs/current/libpq-ssl.html#LIBPQ-SSL-CLIENTCERT).
 
 ## Troubleshooting
 

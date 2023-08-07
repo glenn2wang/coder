@@ -63,12 +63,12 @@ const fillAndSubmitForm = async ({
   await user.type(failureTtlField, failure_ttl_ms.toString())
 
   const inactivityTtlField = screen.getByRole("checkbox", {
-    name: /Inactivity Cleanup/i,
+    name: /Inactivity TTL/i,
   })
   await user.type(inactivityTtlField, inactivity_ttl_ms.toString())
 
   const lockedTtlField = screen.getByRole("checkbox", {
-    name: /Locked Cleanup/i,
+    name: /Locked TTL/i,
   })
   await user.type(lockedTtlField, locked_ttl_ms.toString())
 
@@ -76,6 +76,10 @@ const fillAndSubmitForm = async ({
     FooterFormLanguage.defaultSubmitLabel,
   )
   await user.click(submitButton)
+
+  // User needs to confirm inactivity and locked ttl
+  const confirmButton = await screen.findByTestId("confirm-button")
+  await user.click(confirmButton)
 }
 
 describe("TemplateSchedulePage", () => {
@@ -159,10 +163,19 @@ describe("TemplateSchedulePage", () => {
     expect(validate).not.toThrowError()
   })
 
-  it("disallows a default ttl of 7 days + 1 hour", () => {
+  it("allows a default ttl of 30 days", () => {
     const values: UpdateTemplateMeta = {
       ...validFormValues,
-      default_ttl_ms: 24 * 7 + 1,
+      default_ttl_ms: 24 * 30,
+    }
+    const validate = () => getValidationSchema().validateSync(values)
+    expect(validate).not.toThrowError()
+  })
+
+  it("disallows a default ttl of 30 days + 1 hour", () => {
+    const values: UpdateTemplateMeta = {
+      ...validFormValues,
+      default_ttl_ms: 24 * 30 + 1,
     }
     const validate = () => getValidationSchema().validateSync(values)
     expect(validate).toThrowError(

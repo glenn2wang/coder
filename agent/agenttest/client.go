@@ -10,14 +10,17 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/exp/maps"
+	"golang.org/x/xerrors"
 
 	"cdr.dev/slog"
 	"github.com/coder/coder/codersdk"
 	"github.com/coder/coder/codersdk/agentsdk"
 	"github.com/coder/coder/tailnet"
+	"github.com/coder/coder/testutil"
 )
 
 func NewClient(t testing.TB,
+	logger slog.Logger,
 	agentID uuid.UUID,
 	manifest agentsdk.Manifest,
 	statsChan chan *agentsdk.Stats,
@@ -27,16 +30,19 @@ func NewClient(t testing.TB,
 		manifest.AgentID = agentID
 	}
 	return &Client{
-		t:           t,
-		agentID:     agentID,
-		manifest:    manifest,
-		statsChan:   statsChan,
-		coordinator: coordinator,
+		t:              t,
+		logger:         logger.Named("client"),
+		agentID:        agentID,
+		manifest:       manifest,
+		statsChan:      statsChan,
+		coordinator:    coordinator,
+		derpMapUpdates: make(chan agentsdk.DERPMapUpdate),
 	}
 }
 
 type Client struct {
 	t                    testing.TB
+	logger               slog.Logger
 	agentID              uuid.UUID
 	manifest             agentsdk.Manifest
 	metadata             map[string]agentsdk.PostMetadataRequest
@@ -49,7 +55,8 @@ type Client struct {
 	mu              sync.Mutex // Protects following.
 	lifecycleStates []codersdk.WorkspaceAgentLifecycle
 	startup         agentsdk.PostStartupRequest
-	logs            []agentsdk.StartupLog
+	logs            []agentsdk.Log
+	derpMapUpdates  chan agentsdk.DERPMapUpdate
 }
 
 func (c *Client) Manifest(_ context.Context) (agentsdk.Manifest, error) {
@@ -110,14 +117,16 @@ func (c *Client) GetLifecycleStates() []codersdk.WorkspaceAgentLifecycle {
 	return c.lifecycleStates
 }
 
-func (c *Client) PostLifecycle(_ context.Context, req agentsdk.PostLifecycleRequest) error {
+func (c *Client) PostLifecycle(ctx context.Context, req agentsdk.PostLifecycleRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.lifecycleStates = append(c.lifecycleStates, req.State)
+	c.logger.Debug(ctx, "post lifecycle", slog.F("req", req))
 	return nil
 }
 
-func (*Client) PostAppHealth(_ context.Context, _ agentsdk.PostAppHealthsRequest) error {
+func (c *Client) PostAppHealth(ctx context.Context, req agentsdk.PostAppHealthsRequest) error {
+	c.logger.Debug(ctx, "post app health", slog.F("req", req))
 	return nil
 }
 
@@ -133,36 +142,39 @@ func (c *Client) GetMetadata() map[string]agentsdk.PostMetadataRequest {
 	return maps.Clone(c.metadata)
 }
 
-func (c *Client) PostMetadata(_ context.Context, key string, req agentsdk.PostMetadataRequest) error {
+func (c *Client) PostMetadata(ctx context.Context, key string, req agentsdk.PostMetadataRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.metadata == nil {
 		c.metadata = make(map[string]agentsdk.PostMetadataRequest)
 	}
 	c.metadata[key] = req
+	c.logger.Debug(ctx, "post metadata", slog.F("key", key), slog.F("req", req))
 	return nil
 }
 
-func (c *Client) PostStartup(_ context.Context, startup agentsdk.PostStartupRequest) error {
+func (c *Client) PostStartup(ctx context.Context, startup agentsdk.PostStartupRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.startup = startup
+	c.logger.Debug(ctx, "post startup", slog.F("req", startup))
 	return nil
 }
 
-func (c *Client) GetStartupLogs() []agentsdk.StartupLog {
+func (c *Client) GetStartupLogs() []agentsdk.Log {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.logs
 }
 
-func (c *Client) PatchStartupLogs(_ context.Context, logs agentsdk.PatchStartupLogs) error {
+func (c *Client) PatchLogs(ctx context.Context, logs agentsdk.PatchLogs) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.PatchWorkspaceLogs != nil {
 		return c.PatchWorkspaceLogs()
 	}
 	c.logs = append(c.logs, logs.Logs...)
+	c.logger.Debug(ctx, "patch startup logs", slog.F("req", logs))
 	return nil
 }
 
@@ -173,13 +185,34 @@ func (c *Client) SetServiceBannerFunc(f func() (codersdk.ServiceBannerConfig, er
 	c.GetServiceBannerFunc = f
 }
 
-func (c *Client) GetServiceBanner(_ context.Context) (codersdk.ServiceBannerConfig, error) {
+func (c *Client) GetServiceBanner(ctx context.Context) (codersdk.ServiceBannerConfig, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.logger.Debug(ctx, "get service banner")
 	if c.GetServiceBannerFunc != nil {
 		return c.GetServiceBannerFunc()
 	}
 	return codersdk.ServiceBannerConfig{}, nil
+}
+
+func (c *Client) PushDERPMapUpdate(update agentsdk.DERPMapUpdate) error {
+	timer := time.NewTimer(testutil.WaitShort)
+	defer timer.Stop()
+	select {
+	case c.derpMapUpdates <- update:
+	case <-timer.C:
+		return xerrors.New("timeout waiting to push derp map update")
+	}
+
+	return nil
+}
+
+func (c *Client) DERPMapUpdates(_ context.Context) (<-chan agentsdk.DERPMapUpdate, io.Closer, error) {
+	closed := make(chan struct{})
+	return c.derpMapUpdates, closeFunc(func() error {
+		close(closed)
+		return nil
+	}), nil
 }
 
 type closeFunc func() error

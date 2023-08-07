@@ -349,14 +349,18 @@ func TestCache_BuildTime(t *testing.T) {
 
 			defer cache.Close()
 
-			template, err := db.InsertTemplate(ctx, database.InsertTemplateParams{
-				ID:          uuid.New(),
+			id := uuid.New()
+			err := db.InsertTemplate(ctx, database.InsertTemplateParams{
+				ID:          id,
 				Provisioner: database.ProvisionerTypeEcho,
 			})
 			require.NoError(t, err)
+			template, err := db.GetTemplateByID(ctx, id)
+			require.NoError(t, err)
 
-			templateVersion, err := db.InsertTemplateVersion(ctx, database.InsertTemplateVersionParams{
-				ID:         uuid.New(),
+			templateVersionID := uuid.New()
+			err = db.InsertTemplateVersion(ctx, database.InsertTemplateVersionParams{
+				ID:         templateVersionID,
 				TemplateID: uuid.NullUUID{UUID: template.ID, Valid: true},
 			})
 			require.NoError(t, err)
@@ -381,8 +385,8 @@ func TestCache_BuildTime(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				_, err = db.InsertWorkspaceBuild(ctx, database.InsertWorkspaceBuildParams{
-					TemplateVersionID: templateVersion.ID,
+				err = db.InsertWorkspaceBuild(ctx, database.InsertWorkspaceBuildParams{
+					TemplateVersionID: templateVersionID,
 					JobID:             job.ID,
 					Transition:        tt.args.transition,
 					Reason:            database.BuildReasonInitiator,

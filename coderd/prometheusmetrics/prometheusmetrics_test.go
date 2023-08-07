@@ -11,10 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/coder/coderd/batchstats"
+	"github.com/coder/coder/coderd/database/dbtestutil"
+
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"tailscale.com/tailcfg"
 
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
@@ -118,7 +122,7 @@ func TestWorkspaces(t *testing.T) {
 			Type:          database.ProvisionerJobTypeWorkspaceBuild,
 		})
 		require.NoError(t, err)
-		_, err = db.InsertWorkspaceBuild(context.Background(), database.InsertWorkspaceBuildParams{
+		err = db.InsertWorkspaceBuild(context.Background(), database.InsertWorkspaceBuildParams{
 			ID:          uuid.New(),
 			WorkspaceID: uuid.New(),
 			JobID:       job.ID,
@@ -299,10 +303,13 @@ func TestAgents(t *testing.T) {
 	coderdtest.AwaitWorkspaceBuildJob(t, client, workspace.LatestBuild.ID)
 
 	// given
+	derpMap, _ := tailnettest.RunDERPAndSTUN(t)
+	derpMapFn := func() *tailcfg.DERPMap {
+		return derpMap
+	}
 	coordinator := tailnet.NewCoordinator(slogtest.Make(t, nil).Leveled(slog.LevelDebug))
 	coordinatorPtr := atomic.Pointer[tailnet.Coordinator]{}
 	coordinatorPtr.Store(&coordinator)
-	derpMap, _ := tailnettest.RunDERPAndSTUN(t)
 	agentInactiveDisconnectTimeout := 1 * time.Hour // don't need to focus on this value in tests
 	registry := prometheus.NewRegistry()
 
@@ -312,7 +319,7 @@ func TestAgents(t *testing.T) {
 	// when
 	closeFunc, err := prometheusmetrics.Agents(ctx, slogtest.Make(t, &slogtest.Options{
 		IgnoreErrors: true,
-	}), registry, db, &coordinatorPtr, derpMap, agentInactiveDisconnectTimeout, 50*time.Millisecond)
+	}), registry, db, &coordinatorPtr, derpMapFn, agentInactiveDisconnectTimeout, 50*time.Millisecond)
 	require.NoError(t, err)
 	t.Cleanup(closeFunc)
 
@@ -368,9 +375,29 @@ func TestAgents(t *testing.T) {
 func TestAgentStats(t *testing.T) {
 	t.Parallel()
 
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	t.Cleanup(cancelFunc)
+
+	db, pubsub := dbtestutil.NewDB(t)
+	log := slogtest.Make(t, nil)
+
+	batcher, closeBatcher, err := batchstats.New(ctx,
+		batchstats.WithStore(db),
+		// We want our stats, and we want them NOW.
+		batchstats.WithBatchSize(1),
+		batchstats.WithInterval(time.Hour),
+		batchstats.WithLogger(log),
+	)
+	require.NoError(t, err, "create stats batcher failed")
+	t.Cleanup(closeBatcher)
+
 	// Build sample workspaces with test agents and fake agent client
-	client, _, api := coderdtest.NewWithAPI(t, &coderdtest.Options{IncludeProvisionerDaemon: true})
-	db := api.Database
+	client, _, _ := coderdtest.NewWithAPI(t, &coderdtest.Options{
+		Database:                 db,
+		IncludeProvisionerDaemon: true,
+		Pubsub:                   pubsub,
+		StatsBatcher:             batcher,
+	})
 
 	user := coderdtest.CreateFirstUser(t, client)
 
@@ -380,11 +407,7 @@ func TestAgentStats(t *testing.T) {
 
 	registry := prometheus.NewRegistry()
 
-	ctx, cancelFunc := context.WithCancel(context.Background())
-	defer cancelFunc()
-
 	// given
-	var err error
 	var i int64
 	for i = 0; i < 3; i++ {
 		_, err = agent1.PostStats(ctx, &agentsdk.Stats{

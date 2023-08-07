@@ -9,8 +9,7 @@ import { useMe } from "hooks/useMe"
 import { usePermissions } from "hooks/usePermissions"
 import { FC, ReactNode, useEffect } from "react"
 import { Helmet } from "react-helmet-async"
-import { useNavigate } from "react-router"
-import { useSearchParams } from "react-router-dom"
+import { useSearchParams, useNavigate } from "react-router-dom"
 import { siteRolesMachine } from "xServices/roles/siteRolesXService"
 import { usersMachine } from "xServices/users/usersXService"
 import { ConfirmDialog } from "../../components/Dialogs/ConfirmDialog/ConfirmDialog"
@@ -20,6 +19,7 @@ import { UsersPageView } from "./UsersPageView"
 import { useStatusFilterMenu } from "./UsersFilter"
 import { useFilter } from "components/Filter/filter"
 import { useDashboard } from "components/Dashboard/DashboardProvider"
+import { deploymentConfigMachine } from "xServices/deploymentConfig/deploymentConfigMachine"
 
 export const Language = {
   suspendDialogTitle: "Suspend user",
@@ -61,13 +61,23 @@ export const UsersPage: FC<{ children?: ReactNode }> = () => {
     count,
   } = usersState.context
 
-  const { updateUsers: canEditUsers } = usePermissions()
+  const { updateUsers: canEditUsers, viewDeploymentValues } = usePermissions()
   const [rolesState] = useMachine(siteRolesMachine, {
     context: {
       hasPermission: canEditUsers,
     },
   })
   const { roles } = rolesState.context
+
+  // Ideally this only runs if 'canViewDeployment' is true.
+  // TODO: Prevent api call if the user does not have the perms.
+  const [state] = useMachine(deploymentConfigMachine)
+  const { deploymentValues } = state.context
+  // Indicates if oidc roles are synced from the oidc idp.
+  // Assign 'false' if unknown.
+  const oidcRoleSyncEnabled =
+    viewDeploymentValues &&
+    deploymentValues?.config.oidc?.user_role_field !== ""
 
   // Is loading if
   // - users are loading or
@@ -102,6 +112,7 @@ export const UsersPage: FC<{ children?: ReactNode }> = () => {
         <title>{pageTitle("Users")}</title>
       </Helmet>
       <UsersPageView
+        oidcRoleSyncEnabled={oidcRoleSyncEnabled}
         roles={roles}
         users={users}
         count={count}

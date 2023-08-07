@@ -56,6 +56,10 @@ curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templat
     "name": "string",
     "organization_id": "7c60d51f-b44e-4682-87d6-449835ea4de6",
     "provisioner": "terraform",
+    "restart_requirement": {
+      "days_of_week": ["monday"],
+      "weeks": 0
+    },
     "updated_at": "2019-08-24T14:15:22Z"
   }
 ]
@@ -71,34 +75,38 @@ curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templat
 
 Status Code **200**
 
-| Name                                 | Type                                                                         | Required | Restrictions | Description                                                                                                                                                                     |
-| ------------------------------------ | ---------------------------------------------------------------------------- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `[array item]`                       | array                                                                        | false    |              |                                                                                                                                                                                 |
-| `» active_user_count`                | integer                                                                      | false    |              | Active user count is set to -1 when loading.                                                                                                                                    |
-| `» active_version_id`                | string(uuid)                                                                 | false    |              |                                                                                                                                                                                 |
-| `» allow_user_autostart`             | boolean                                                                      | false    |              | Allow user autostart and AllowUserAutostop are enterprise-only. Their values are only used if your license is entitled to use the advanced template scheduling feature.         |
-| `» allow_user_autostop`              | boolean                                                                      | false    |              |                                                                                                                                                                                 |
-| `» allow_user_cancel_workspace_jobs` | boolean                                                                      | false    |              |                                                                                                                                                                                 |
-| `» build_time_stats`                 | [codersdk.TemplateBuildTimeStats](schemas.md#codersdktemplatebuildtimestats) | false    |              |                                                                                                                                                                                 |
-| `»» [any property]`                  | [codersdk.TransitionStats](schemas.md#codersdktransitionstats)               | false    |              |                                                                                                                                                                                 |
-| `»»» p50`                            | integer                                                                      | false    |              |                                                                                                                                                                                 |
-| `»»» p95`                            | integer                                                                      | false    |              |                                                                                                                                                                                 |
-| `» created_at`                       | string(date-time)                                                            | false    |              |                                                                                                                                                                                 |
-| `» created_by_id`                    | string(uuid)                                                                 | false    |              |                                                                                                                                                                                 |
-| `» created_by_name`                  | string                                                                       | false    |              |                                                                                                                                                                                 |
-| `» default_ttl_ms`                   | integer                                                                      | false    |              |                                                                                                                                                                                 |
-| `» description`                      | string                                                                       | false    |              |                                                                                                                                                                                 |
-| `» display_name`                     | string                                                                       | false    |              |                                                                                                                                                                                 |
-| `» failure_ttl_ms`                   | integer                                                                      | false    |              | Failure ttl ms InactivityTTLMillis, and LockedTTLMillis are enterprise-only. Their values are used if your license is entitled to use the advanced template scheduling feature. |
-| `» icon`                             | string                                                                       | false    |              |                                                                                                                                                                                 |
-| `» id`                               | string(uuid)                                                                 | false    |              |                                                                                                                                                                                 |
-| `» inactivity_ttl_ms`                | integer                                                                      | false    |              |                                                                                                                                                                                 |
-| `» locked_ttl_ms`                    | integer                                                                      | false    |              |                                                                                                                                                                                 |
-| `» max_ttl_ms`                       | integer                                                                      | false    |              | Max ttl ms is an enterprise feature. It's value is only used if your license is entitled to use the advanced template scheduling feature.                                       |
-| `» name`                             | string                                                                       | false    |              |                                                                                                                                                                                 |
-| `» organization_id`                  | string(uuid)                                                                 | false    |              |                                                                                                                                                                                 |
-| `» provisioner`                      | string                                                                       | false    |              |                                                                                                                                                                                 |
-| `» updated_at`                       | string(date-time)                                                            | false    |              |                                                                                                                                                                                 |
+| Name                                                                                  | Type                                                                                 | Required | Restrictions | Description                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | -------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[array item]`                                                                        | array                                                                                | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» active_user_count`                                                                 | integer                                                                              | false    |              | Active user count is set to -1 when loading.                                                                                                                                                                                                                                                                   |
+| `» active_version_id`                                                                 | string(uuid)                                                                         | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» allow_user_autostart`                                                              | boolean                                                                              | false    |              | Allow user autostart and AllowUserAutostop are enterprise-only. Their values are only used if your license is entitled to use the advanced template scheduling feature.                                                                                                                                        |
+| `» allow_user_autostop`                                                               | boolean                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» allow_user_cancel_workspace_jobs`                                                  | boolean                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» build_time_stats`                                                                  | [codersdk.TemplateBuildTimeStats](schemas.md#codersdktemplatebuildtimestats)         | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `»» [any property]`                                                                   | [codersdk.TransitionStats](schemas.md#codersdktransitionstats)                       | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `»»» p50`                                                                             | integer                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `»»» p95`                                                                             | integer                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» created_at`                                                                        | string(date-time)                                                                    | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» created_by_id`                                                                     | string(uuid)                                                                         | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» created_by_name`                                                                   | string                                                                               | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» default_ttl_ms`                                                                    | integer                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» description`                                                                       | string                                                                               | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» display_name`                                                                      | string                                                                               | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» failure_ttl_ms`                                                                    | integer                                                                              | false    |              | Failure ttl ms InactivityTTLMillis, and LockedTTLMillis are enterprise-only. Their values are used if your license is entitled to use the advanced template scheduling feature.                                                                                                                                |
+| `» icon`                                                                              | string                                                                               | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» id`                                                                                | string(uuid)                                                                         | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» inactivity_ttl_ms`                                                                 | integer                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» locked_ttl_ms`                                                                     | integer                                                                              | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» max_ttl_ms`                                                                        | integer                                                                              | false    |              | Max ttl ms remove max_ttl once restart_requirement is matured                                                                                                                                                                                                                                                  |
+| `» name`                                                                              | string                                                                               | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» organization_id`                                                                   | string(uuid)                                                                         | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» provisioner`                                                                       | string                                                                               | false    |              |                                                                                                                                                                                                                                                                                                                |
+| `» restart_requirement`                                                               | [codersdk.TemplateRestartRequirement](schemas.md#codersdktemplaterestartrequirement) | false    |              | Restart requirement is an enterprise feature. Its value is only used if your license is entitled to use the advanced template scheduling feature.                                                                                                                                                              |
+| `»» days_of_week`                                                                     | array                                                                                | false    |              | »days of week is a list of days of the week on which restarts are required. Restarts happen within the user's quiet hours (in their configured timezone). If no days are specified, restarts are not required. Weekdays cannot be specified twice.                                                             |
+| Restarts will only happen on weekdays in this list on weeks which line up with Weeks. |
+| `»» weeks`                                                                            | integer                                                                              | false    |              | Weeks is the number of weeks between required restarts. Weeks are synced across all workspaces (and Coder deployments) using modulo math on a hardcoded epoch week of January 2nd, 2023 (the first Monday of 2023). Values of 0 or 1 indicate weekly restarts. Values of 2 indicate fortnightly restarts, etc. |
+| `» updated_at`                                                                        | string(date-time)                                                                    | false    |              |                                                                                                                                                                                                                                                                                                                |
 
 #### Enumerated Values
 
@@ -139,6 +147,10 @@ curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templa
   "locked_ttl_ms": 0,
   "max_ttl_ms": 0,
   "name": "string",
+  "restart_requirement": {
+    "days_of_week": ["monday"],
+    "weeks": 0
+  },
   "template_version_id": "0ba39c92-1f1b-4c32-aa3e-9925d7713eb1"
 }
 ```
@@ -186,6 +198,10 @@ curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templa
   "name": "string",
   "organization_id": "7c60d51f-b44e-4682-87d6-449835ea4de6",
   "provisioner": "terraform",
+  "restart_requirement": {
+    "days_of_week": ["monday"],
+    "weeks": 0
+  },
   "updated_at": "2019-08-24T14:15:22Z"
 }
 ```
@@ -314,6 +330,10 @@ curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templat
   "name": "string",
   "organization_id": "7c60d51f-b44e-4682-87d6-449835ea4de6",
   "provisioner": "terraform",
+  "restart_requirement": {
+    "days_of_week": ["monday"],
+    "weeks": 0
+  },
   "updated_at": "2019-08-24T14:15:22Z"
 }
 ```
@@ -356,18 +376,7 @@ curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templat
   "created_at": "2019-08-24T14:15:22Z",
   "created_by": {
     "avatar_url": "http://example.com",
-    "created_at": "2019-08-24T14:15:22Z",
-    "email": "user@example.com",
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-    "last_seen_at": "2019-08-24T14:15:22Z",
-    "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-    "roles": [
-      {
-        "display_name": "string",
-        "name": "string"
-      }
-    ],
-    "status": "active",
     "username": "string"
   },
   "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -437,18 +446,7 @@ curl -X GET http://coder-server:8080/api/v2/organizations/{organization}/templat
   "created_at": "2019-08-24T14:15:22Z",
   "created_by": {
     "avatar_url": "http://example.com",
-    "created_at": "2019-08-24T14:15:22Z",
-    "email": "user@example.com",
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-    "last_seen_at": "2019-08-24T14:15:22Z",
-    "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-    "roles": [
-      {
-        "display_name": "string",
-        "name": "string"
-      }
-    ],
-    "status": "active",
     "username": "string"
   },
   "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -542,18 +540,7 @@ curl -X POST http://coder-server:8080/api/v2/organizations/{organization}/templa
   "created_at": "2019-08-24T14:15:22Z",
   "created_by": {
     "avatar_url": "http://example.com",
-    "created_at": "2019-08-24T14:15:22Z",
-    "email": "user@example.com",
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-    "last_seen_at": "2019-08-24T14:15:22Z",
-    "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-    "roles": [
-      {
-        "display_name": "string",
-        "name": "string"
-      }
-    ],
-    "status": "active",
     "username": "string"
   },
   "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -648,6 +635,10 @@ curl -X GET http://coder-server:8080/api/v2/templates/{template} \
   "name": "string",
   "organization_id": "7c60d51f-b44e-4682-87d6-449835ea4de6",
   "provisioner": "terraform",
+  "restart_requirement": {
+    "days_of_week": ["monday"],
+    "weeks": 0
+  },
   "updated_at": "2019-08-24T14:15:22Z"
 }
 ```
@@ -759,6 +750,10 @@ curl -X PATCH http://coder-server:8080/api/v2/templates/{template} \
   "name": "string",
   "organization_id": "7c60d51f-b44e-4682-87d6-449835ea4de6",
   "provisioner": "terraform",
+  "restart_requirement": {
+    "days_of_week": ["monday"],
+    "weeks": 0
+  },
   "updated_at": "2019-08-24T14:15:22Z"
 }
 ```
@@ -846,18 +841,7 @@ curl -X GET http://coder-server:8080/api/v2/templates/{template}/versions \
     "created_at": "2019-08-24T14:15:22Z",
     "created_by": {
       "avatar_url": "http://example.com",
-      "created_at": "2019-08-24T14:15:22Z",
-      "email": "user@example.com",
       "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-      "last_seen_at": "2019-08-24T14:15:22Z",
-      "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-      "roles": [
-        {
-          "display_name": "string",
-          "name": "string"
-        }
-      ],
-      "status": "active",
       "username": "string"
     },
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -900,52 +884,42 @@ curl -X GET http://coder-server:8080/api/v2/templates/{template}/versions \
 
 Status Code **200**
 
-| Name                  | Type                                                                     | Required | Restrictions | Description |
-| --------------------- | ------------------------------------------------------------------------ | -------- | ------------ | ----------- |
-| `[array item]`        | array                                                                    | false    |              |             |
-| `» created_at`        | string(date-time)                                                        | false    |              |             |
-| `» created_by`        | [codersdk.User](schemas.md#codersdkuser)                                 | false    |              |             |
-| `»» avatar_url`       | string(uri)                                                              | false    |              |             |
-| `»» created_at`       | string(date-time)                                                        | true     |              |             |
-| `»» email`            | string(email)                                                            | true     |              |             |
-| `»» id`               | string(uuid)                                                             | true     |              |             |
-| `»» last_seen_at`     | string(date-time)                                                        | false    |              |             |
-| `»» organization_ids` | array                                                                    | false    |              |             |
-| `»» roles`            | array                                                                    | false    |              |             |
-| `»»» display_name`    | string                                                                   | false    |              |             |
-| `»»» name`            | string                                                                   | false    |              |             |
-| `»» status`           | [codersdk.UserStatus](schemas.md#codersdkuserstatus)                     | false    |              |             |
-| `»» username`         | string                                                                   | true     |              |             |
-| `» id`                | string(uuid)                                                             | false    |              |             |
-| `» job`               | [codersdk.ProvisionerJob](schemas.md#codersdkprovisionerjob)             | false    |              |             |
-| `»» canceled_at`      | string(date-time)                                                        | false    |              |             |
-| `»» completed_at`     | string(date-time)                                                        | false    |              |             |
-| `»» created_at`       | string(date-time)                                                        | false    |              |             |
-| `»» error`            | string                                                                   | false    |              |             |
-| `»» error_code`       | [codersdk.JobErrorCode](schemas.md#codersdkjoberrorcode)                 | false    |              |             |
-| `»» file_id`          | string(uuid)                                                             | false    |              |             |
-| `»» id`               | string(uuid)                                                             | false    |              |             |
-| `»» queue_position`   | integer                                                                  | false    |              |             |
-| `»» queue_size`       | integer                                                                  | false    |              |             |
-| `»» started_at`       | string(date-time)                                                        | false    |              |             |
-| `»» status`           | [codersdk.ProvisionerJobStatus](schemas.md#codersdkprovisionerjobstatus) | false    |              |             |
-| `»» tags`             | object                                                                   | false    |              |             |
-| `»»» [any property]`  | string                                                                   | false    |              |             |
-| `»» worker_id`        | string(uuid)                                                             | false    |              |             |
-| `» message`           | string                                                                   | false    |              |             |
-| `» name`              | string                                                                   | false    |              |             |
-| `» organization_id`   | string(uuid)                                                             | false    |              |             |
-| `» readme`            | string                                                                   | false    |              |             |
-| `» template_id`       | string(uuid)                                                             | false    |              |             |
-| `» updated_at`        | string(date-time)                                                        | false    |              |             |
-| `» warnings`          | array                                                                    | false    |              |             |
+| Name                 | Type                                                                     | Required | Restrictions | Description |
+| -------------------- | ------------------------------------------------------------------------ | -------- | ------------ | ----------- |
+| `[array item]`       | array                                                                    | false    |              |             |
+| `» created_at`       | string(date-time)                                                        | false    |              |             |
+| `» created_by`       | [codersdk.MinimalUser](schemas.md#codersdkminimaluser)                   | false    |              |             |
+| `»» avatar_url`      | string(uri)                                                              | false    |              |             |
+| `»» id`              | string(uuid)                                                             | true     |              |             |
+| `»» username`        | string                                                                   | true     |              |             |
+| `» id`               | string(uuid)                                                             | false    |              |             |
+| `» job`              | [codersdk.ProvisionerJob](schemas.md#codersdkprovisionerjob)             | false    |              |             |
+| `»» canceled_at`     | string(date-time)                                                        | false    |              |             |
+| `»» completed_at`    | string(date-time)                                                        | false    |              |             |
+| `»» created_at`      | string(date-time)                                                        | false    |              |             |
+| `»» error`           | string                                                                   | false    |              |             |
+| `»» error_code`      | [codersdk.JobErrorCode](schemas.md#codersdkjoberrorcode)                 | false    |              |             |
+| `»» file_id`         | string(uuid)                                                             | false    |              |             |
+| `»» id`              | string(uuid)                                                             | false    |              |             |
+| `»» queue_position`  | integer                                                                  | false    |              |             |
+| `»» queue_size`      | integer                                                                  | false    |              |             |
+| `»» started_at`      | string(date-time)                                                        | false    |              |             |
+| `»» status`          | [codersdk.ProvisionerJobStatus](schemas.md#codersdkprovisionerjobstatus) | false    |              |             |
+| `»» tags`            | object                                                                   | false    |              |             |
+| `»»» [any property]` | string                                                                   | false    |              |             |
+| `»» worker_id`       | string(uuid)                                                             | false    |              |             |
+| `» message`          | string                                                                   | false    |              |             |
+| `» name`             | string                                                                   | false    |              |             |
+| `» organization_id`  | string(uuid)                                                             | false    |              |             |
+| `» readme`           | string                                                                   | false    |              |             |
+| `» template_id`      | string(uuid)                                                             | false    |              |             |
+| `» updated_at`       | string(date-time)                                                        | false    |              |             |
+| `» warnings`         | array                                                                    | false    |              |             |
 
 #### Enumerated Values
 
 | Property     | Value                         |
 | ------------ | ----------------------------- |
-| `status`     | `active`                      |
-| `status`     | `suspended`                   |
 | `error_code` | `MISSING_TEMPLATE_PARAMETER`  |
 | `error_code` | `REQUIRED_TEMPLATE_VARIABLES` |
 | `status`     | `pending`                     |
@@ -1041,18 +1015,7 @@ curl -X GET http://coder-server:8080/api/v2/templates/{template}/versions/{templ
     "created_at": "2019-08-24T14:15:22Z",
     "created_by": {
       "avatar_url": "http://example.com",
-      "created_at": "2019-08-24T14:15:22Z",
-      "email": "user@example.com",
       "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-      "last_seen_at": "2019-08-24T14:15:22Z",
-      "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-      "roles": [
-        {
-          "display_name": "string",
-          "name": "string"
-        }
-      ],
-      "status": "active",
       "username": "string"
     },
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -1095,52 +1058,42 @@ curl -X GET http://coder-server:8080/api/v2/templates/{template}/versions/{templ
 
 Status Code **200**
 
-| Name                  | Type                                                                     | Required | Restrictions | Description |
-| --------------------- | ------------------------------------------------------------------------ | -------- | ------------ | ----------- |
-| `[array item]`        | array                                                                    | false    |              |             |
-| `» created_at`        | string(date-time)                                                        | false    |              |             |
-| `» created_by`        | [codersdk.User](schemas.md#codersdkuser)                                 | false    |              |             |
-| `»» avatar_url`       | string(uri)                                                              | false    |              |             |
-| `»» created_at`       | string(date-time)                                                        | true     |              |             |
-| `»» email`            | string(email)                                                            | true     |              |             |
-| `»» id`               | string(uuid)                                                             | true     |              |             |
-| `»» last_seen_at`     | string(date-time)                                                        | false    |              |             |
-| `»» organization_ids` | array                                                                    | false    |              |             |
-| `»» roles`            | array                                                                    | false    |              |             |
-| `»»» display_name`    | string                                                                   | false    |              |             |
-| `»»» name`            | string                                                                   | false    |              |             |
-| `»» status`           | [codersdk.UserStatus](schemas.md#codersdkuserstatus)                     | false    |              |             |
-| `»» username`         | string                                                                   | true     |              |             |
-| `» id`                | string(uuid)                                                             | false    |              |             |
-| `» job`               | [codersdk.ProvisionerJob](schemas.md#codersdkprovisionerjob)             | false    |              |             |
-| `»» canceled_at`      | string(date-time)                                                        | false    |              |             |
-| `»» completed_at`     | string(date-time)                                                        | false    |              |             |
-| `»» created_at`       | string(date-time)                                                        | false    |              |             |
-| `»» error`            | string                                                                   | false    |              |             |
-| `»» error_code`       | [codersdk.JobErrorCode](schemas.md#codersdkjoberrorcode)                 | false    |              |             |
-| `»» file_id`          | string(uuid)                                                             | false    |              |             |
-| `»» id`               | string(uuid)                                                             | false    |              |             |
-| `»» queue_position`   | integer                                                                  | false    |              |             |
-| `»» queue_size`       | integer                                                                  | false    |              |             |
-| `»» started_at`       | string(date-time)                                                        | false    |              |             |
-| `»» status`           | [codersdk.ProvisionerJobStatus](schemas.md#codersdkprovisionerjobstatus) | false    |              |             |
-| `»» tags`             | object                                                                   | false    |              |             |
-| `»»» [any property]`  | string                                                                   | false    |              |             |
-| `»» worker_id`        | string(uuid)                                                             | false    |              |             |
-| `» message`           | string                                                                   | false    |              |             |
-| `» name`              | string                                                                   | false    |              |             |
-| `» organization_id`   | string(uuid)                                                             | false    |              |             |
-| `» readme`            | string                                                                   | false    |              |             |
-| `» template_id`       | string(uuid)                                                             | false    |              |             |
-| `» updated_at`        | string(date-time)                                                        | false    |              |             |
-| `» warnings`          | array                                                                    | false    |              |             |
+| Name                 | Type                                                                     | Required | Restrictions | Description |
+| -------------------- | ------------------------------------------------------------------------ | -------- | ------------ | ----------- |
+| `[array item]`       | array                                                                    | false    |              |             |
+| `» created_at`       | string(date-time)                                                        | false    |              |             |
+| `» created_by`       | [codersdk.MinimalUser](schemas.md#codersdkminimaluser)                   | false    |              |             |
+| `»» avatar_url`      | string(uri)                                                              | false    |              |             |
+| `»» id`              | string(uuid)                                                             | true     |              |             |
+| `»» username`        | string                                                                   | true     |              |             |
+| `» id`               | string(uuid)                                                             | false    |              |             |
+| `» job`              | [codersdk.ProvisionerJob](schemas.md#codersdkprovisionerjob)             | false    |              |             |
+| `»» canceled_at`     | string(date-time)                                                        | false    |              |             |
+| `»» completed_at`    | string(date-time)                                                        | false    |              |             |
+| `»» created_at`      | string(date-time)                                                        | false    |              |             |
+| `»» error`           | string                                                                   | false    |              |             |
+| `»» error_code`      | [codersdk.JobErrorCode](schemas.md#codersdkjoberrorcode)                 | false    |              |             |
+| `»» file_id`         | string(uuid)                                                             | false    |              |             |
+| `»» id`              | string(uuid)                                                             | false    |              |             |
+| `»» queue_position`  | integer                                                                  | false    |              |             |
+| `»» queue_size`      | integer                                                                  | false    |              |             |
+| `»» started_at`      | string(date-time)                                                        | false    |              |             |
+| `»» status`          | [codersdk.ProvisionerJobStatus](schemas.md#codersdkprovisionerjobstatus) | false    |              |             |
+| `»» tags`            | object                                                                   | false    |              |             |
+| `»»» [any property]` | string                                                                   | false    |              |             |
+| `»» worker_id`       | string(uuid)                                                             | false    |              |             |
+| `» message`          | string                                                                   | false    |              |             |
+| `» name`             | string                                                                   | false    |              |             |
+| `» organization_id`  | string(uuid)                                                             | false    |              |             |
+| `» readme`           | string                                                                   | false    |              |             |
+| `» template_id`      | string(uuid)                                                             | false    |              |             |
+| `» updated_at`       | string(date-time)                                                        | false    |              |             |
+| `» warnings`         | array                                                                    | false    |              |             |
 
 #### Enumerated Values
 
 | Property     | Value                         |
 | ------------ | ----------------------------- |
-| `status`     | `active`                      |
-| `status`     | `suspended`                   |
 | `error_code` | `MISSING_TEMPLATE_PARAMETER`  |
 | `error_code` | `REQUIRED_TEMPLATE_VARIABLES` |
 | `status`     | `pending`                     |
@@ -1180,18 +1133,7 @@ curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion} \
   "created_at": "2019-08-24T14:15:22Z",
   "created_by": {
     "avatar_url": "http://example.com",
-    "created_at": "2019-08-24T14:15:22Z",
-    "email": "user@example.com",
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-    "last_seen_at": "2019-08-24T14:15:22Z",
-    "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-    "roles": [
-      {
-        "display_name": "string",
-        "name": "string"
-      }
-    ],
-    "status": "active",
     "username": "string"
   },
   "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -1270,18 +1212,7 @@ curl -X PATCH http://coder-server:8080/api/v2/templateversions/{templateversion}
   "created_at": "2019-08-24T14:15:22Z",
   "created_by": {
     "avatar_url": "http://example.com",
-    "created_at": "2019-08-24T14:15:22Z",
-    "email": "user@example.com",
     "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
-    "last_seen_at": "2019-08-24T14:15:22Z",
-    "organization_ids": ["497f6eca-6276-4993-bfeb-53cbbbba6f08"],
-    "roles": [
-      {
-        "display_name": "string",
-        "name": "string"
-      }
-    ],
-    "status": "active",
     "username": "string"
   },
   "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
@@ -1689,6 +1620,8 @@ curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/d
         },
         "lifecycle_state": "created",
         "login_before_ready": true,
+        "logs_length": 0,
+        "logs_overflowed": true,
         "name": "string",
         "operating_system": "string",
         "ready_at": "2019-08-24T14:15:22Z",
@@ -1696,8 +1629,6 @@ curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/d
         "shutdown_script": "string",
         "shutdown_script_timeout_seconds": 0,
         "started_at": "2019-08-24T14:15:22Z",
-        "startup_logs_length": 0,
-        "startup_logs_overflowed": true,
         "startup_script": "string",
         "startup_script_behavior": "blocking",
         "startup_script_timeout_seconds": 0,
@@ -1778,6 +1709,8 @@ Status Code **200**
 | `»»»» preferred`                     | boolean                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» lifecycle_state`                 | [codersdk.WorkspaceAgentLifecycle](schemas.md#codersdkworkspaceagentlifecycle)                         | false    |              |                                                                                                                                                                                                                                                |
 | `»» login_before_ready`              | boolean                                                                                                | false    |              | Deprecated: Use StartupScriptBehavior instead.                                                                                                                                                                                                 |
+| `»» logs_length`                     | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                |
+| `»» logs_overflowed`                 | boolean                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» name`                            | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» operating_system`                | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» ready_at`                        | string(date-time)                                                                                      | false    |              |                                                                                                                                                                                                                                                |
@@ -1785,8 +1718,6 @@ Status Code **200**
 | `»» shutdown_script`                 | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» shutdown_script_timeout_seconds` | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» started_at`                      | string(date-time)                                                                                      | false    |              |                                                                                                                                                                                                                                                |
-| `»» startup_logs_length`             | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                |
-| `»» startup_logs_overflowed`         | boolean                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» startup_script`                  | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» startup_script_behavior`         | [codersdk.WorkspaceAgentStartupScriptBehavior](schemas.md#codersdkworkspaceagentstartupscriptbehavior) | false    |              |                                                                                                                                                                                                                                                |
 | `»» startup_script_timeout_seconds`  | integer                                                                                                | false    |              | »startup script timeout seconds is the number of seconds to wait for the startup script to complete. If the script does not complete within this time, the agent lifecycle will be marked as start_timeout.                                    |
@@ -2081,6 +2012,8 @@ curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/r
         },
         "lifecycle_state": "created",
         "login_before_ready": true,
+        "logs_length": 0,
+        "logs_overflowed": true,
         "name": "string",
         "operating_system": "string",
         "ready_at": "2019-08-24T14:15:22Z",
@@ -2088,8 +2021,6 @@ curl -X GET http://coder-server:8080/api/v2/templateversions/{templateversion}/r
         "shutdown_script": "string",
         "shutdown_script_timeout_seconds": 0,
         "started_at": "2019-08-24T14:15:22Z",
-        "startup_logs_length": 0,
-        "startup_logs_overflowed": true,
         "startup_script": "string",
         "startup_script_behavior": "blocking",
         "startup_script_timeout_seconds": 0,
@@ -2170,6 +2101,8 @@ Status Code **200**
 | `»»»» preferred`                     | boolean                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» lifecycle_state`                 | [codersdk.WorkspaceAgentLifecycle](schemas.md#codersdkworkspaceagentlifecycle)                         | false    |              |                                                                                                                                                                                                                                                |
 | `»» login_before_ready`              | boolean                                                                                                | false    |              | Deprecated: Use StartupScriptBehavior instead.                                                                                                                                                                                                 |
+| `»» logs_length`                     | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                |
+| `»» logs_overflowed`                 | boolean                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» name`                            | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» operating_system`                | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» ready_at`                        | string(date-time)                                                                                      | false    |              |                                                                                                                                                                                                                                                |
@@ -2177,8 +2110,6 @@ Status Code **200**
 | `»» shutdown_script`                 | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» shutdown_script_timeout_seconds` | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» started_at`                      | string(date-time)                                                                                      | false    |              |                                                                                                                                                                                                                                                |
-| `»» startup_logs_length`             | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                |
-| `»» startup_logs_overflowed`         | boolean                                                                                                | false    |              |                                                                                                                                                                                                                                                |
 | `»» startup_script`                  | string                                                                                                 | false    |              |                                                                                                                                                                                                                                                |
 | `»» startup_script_behavior`         | [codersdk.WorkspaceAgentStartupScriptBehavior](schemas.md#codersdkworkspaceagentstartupscriptbehavior) | false    |              |                                                                                                                                                                                                                                                |
 | `»» startup_script_timeout_seconds`  | integer                                                                                                | false    |              | »startup script timeout seconds is the number of seconds to wait for the startup script to complete. If the script does not complete within this time, the agent lifecycle will be marked as start_timeout.                                    |

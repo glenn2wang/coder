@@ -1032,11 +1032,13 @@ func AllStartupScriptBehaviorValues() []StartupScriptBehavior {
 	}
 }
 
+// Defines the user status: active, dormant, or suspended.
 type UserStatus string
 
 const (
 	UserStatusActive    UserStatus = "active"
 	UserStatusSuspended UserStatus = "suspended"
+	UserStatusDormant   UserStatus = "dormant"
 )
 
 func (e *UserStatus) Scan(src interface{}) error {
@@ -1077,7 +1079,8 @@ func (ns NullUserStatus) Value() (driver.Value, error) {
 func (e UserStatus) Valid() bool {
 	switch e {
 	case UserStatusActive,
-		UserStatusSuspended:
+		UserStatusSuspended,
+		UserStatusDormant:
 		return true
 	}
 	return false
@@ -1087,6 +1090,7 @@ func AllUserStatusValues() []UserStatus {
 	return []UserStatus{
 		UserStatusActive,
 		UserStatusSuspended,
+		UserStatusDormant,
 	}
 }
 
@@ -1166,6 +1170,76 @@ func AllWorkspaceAgentLifecycleStateValues() []WorkspaceAgentLifecycleState {
 		WorkspaceAgentLifecycleStateShutdownTimeout,
 		WorkspaceAgentLifecycleStateShutdownError,
 		WorkspaceAgentLifecycleStateOff,
+	}
+}
+
+type WorkspaceAgentLogSource string
+
+const (
+	WorkspaceAgentLogSourceStartupScript  WorkspaceAgentLogSource = "startup_script"
+	WorkspaceAgentLogSourceShutdownScript WorkspaceAgentLogSource = "shutdown_script"
+	WorkspaceAgentLogSourceKubernetesLogs WorkspaceAgentLogSource = "kubernetes_logs"
+	WorkspaceAgentLogSourceEnvbox         WorkspaceAgentLogSource = "envbox"
+	WorkspaceAgentLogSourceEnvbuilder     WorkspaceAgentLogSource = "envbuilder"
+	WorkspaceAgentLogSourceExternal       WorkspaceAgentLogSource = "external"
+)
+
+func (e *WorkspaceAgentLogSource) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkspaceAgentLogSource(s)
+	case string:
+		*e = WorkspaceAgentLogSource(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkspaceAgentLogSource: %T", src)
+	}
+	return nil
+}
+
+type NullWorkspaceAgentLogSource struct {
+	WorkspaceAgentLogSource WorkspaceAgentLogSource `json:"workspace_agent_log_source"`
+	Valid                   bool                    `json:"valid"` // Valid is true if WorkspaceAgentLogSource is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkspaceAgentLogSource) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkspaceAgentLogSource, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkspaceAgentLogSource.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkspaceAgentLogSource) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkspaceAgentLogSource), nil
+}
+
+func (e WorkspaceAgentLogSource) Valid() bool {
+	switch e {
+	case WorkspaceAgentLogSourceStartupScript,
+		WorkspaceAgentLogSourceShutdownScript,
+		WorkspaceAgentLogSourceKubernetesLogs,
+		WorkspaceAgentLogSourceEnvbox,
+		WorkspaceAgentLogSourceEnvbuilder,
+		WorkspaceAgentLogSourceExternal:
+		return true
+	}
+	return false
+}
+
+func AllWorkspaceAgentLogSourceValues() []WorkspaceAgentLogSource {
+	return []WorkspaceAgentLogSource{
+		WorkspaceAgentLogSourceStartupScript,
+		WorkspaceAgentLogSourceShutdownScript,
+		WorkspaceAgentLogSourceKubernetesLogs,
+		WorkspaceAgentLogSourceEnvbox,
+		WorkspaceAgentLogSourceEnvbuilder,
+		WorkspaceAgentLogSourceExternal,
 	}
 }
 
@@ -1422,6 +1496,8 @@ type Group struct {
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
 	AvatarURL      string    `db:"avatar_url" json:"avatar_url"`
 	QuotaAllowance int32     `db:"quota_allowance" json:"quota_allowance"`
+	// Display name is a custom, human-friendly group name that user can set. This is not required to be unique and can be the empty string.
+	DisplayName string `db:"display_name" json:"display_name"`
 }
 
 type GroupMember struct {
@@ -1539,6 +1615,7 @@ type Replica struct {
 	DatabaseLatency int32        `db:"database_latency" json:"database_latency"`
 	Version         string       `db:"version" json:"version"`
 	Error           string       `db:"error" json:"error"`
+	Primary         bool         `db:"primary" json:"primary"`
 }
 
 type SiteConfig struct {
@@ -1567,7 +1644,37 @@ type TailnetCoordinator struct {
 	HeartbeatAt time.Time `db:"heartbeat_at" json:"heartbeat_at"`
 }
 
+// Joins in the username + avatar url of the created by user.
 type Template struct {
+	ID                           uuid.UUID       `db:"id" json:"id"`
+	CreatedAt                    time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt                    time.Time       `db:"updated_at" json:"updated_at"`
+	OrganizationID               uuid.UUID       `db:"organization_id" json:"organization_id"`
+	Deleted                      bool            `db:"deleted" json:"deleted"`
+	Name                         string          `db:"name" json:"name"`
+	Provisioner                  ProvisionerType `db:"provisioner" json:"provisioner"`
+	ActiveVersionID              uuid.UUID       `db:"active_version_id" json:"active_version_id"`
+	Description                  string          `db:"description" json:"description"`
+	DefaultTTL                   int64           `db:"default_ttl" json:"default_ttl"`
+	CreatedBy                    uuid.UUID       `db:"created_by" json:"created_by"`
+	Icon                         string          `db:"icon" json:"icon"`
+	UserACL                      TemplateACL     `db:"user_acl" json:"user_acl"`
+	GroupACL                     TemplateACL     `db:"group_acl" json:"group_acl"`
+	DisplayName                  string          `db:"display_name" json:"display_name"`
+	AllowUserCancelWorkspaceJobs bool            `db:"allow_user_cancel_workspace_jobs" json:"allow_user_cancel_workspace_jobs"`
+	MaxTTL                       int64           `db:"max_ttl" json:"max_ttl"`
+	AllowUserAutostart           bool            `db:"allow_user_autostart" json:"allow_user_autostart"`
+	AllowUserAutostop            bool            `db:"allow_user_autostop" json:"allow_user_autostop"`
+	FailureTTL                   int64           `db:"failure_ttl" json:"failure_ttl"`
+	InactivityTTL                int64           `db:"inactivity_ttl" json:"inactivity_ttl"`
+	LockedTTL                    int64           `db:"locked_ttl" json:"locked_ttl"`
+	RestartRequirementDaysOfWeek int16           `db:"restart_requirement_days_of_week" json:"restart_requirement_days_of_week"`
+	RestartRequirementWeeks      int64           `db:"restart_requirement_weeks" json:"restart_requirement_weeks"`
+	CreatedByAvatarURL           sql.NullString  `db:"created_by_avatar_url" json:"created_by_avatar_url"`
+	CreatedByUsername            string          `db:"created_by_username" json:"created_by_username"`
+}
+
+type TemplateTable struct {
 	ID              uuid.UUID       `db:"id" json:"id"`
 	CreatedAt       time.Time       `db:"created_at" json:"created_at"`
 	UpdatedAt       time.Time       `db:"updated_at" json:"updated_at"`
@@ -1595,22 +1702,27 @@ type Template struct {
 	FailureTTL        int64 `db:"failure_ttl" json:"failure_ttl"`
 	InactivityTTL     int64 `db:"inactivity_ttl" json:"inactivity_ttl"`
 	LockedTTL         int64 `db:"locked_ttl" json:"locked_ttl"`
+	// A bitmap of days of week to restart the workspace on, starting with Monday as the 0th bit, and Sunday as the 6th bit. The 7th bit is unused.
+	RestartRequirementDaysOfWeek int16 `db:"restart_requirement_days_of_week" json:"restart_requirement_days_of_week"`
+	// The number of weeks between restarts. 0 or 1 weeks means "every week", 2 week means "every second week", etc. Weeks are counted from January 2, 2023, which is the first Monday of 2023. This is to ensure workspaces are started consistently for all customers on the same n-week cycles.
+	RestartRequirementWeeks int64 `db:"restart_requirement_weeks" json:"restart_requirement_weeks"`
 }
 
+// Joins in the username + avatar url of the created by user.
 type TemplateVersion struct {
-	ID             uuid.UUID     `db:"id" json:"id"`
-	TemplateID     uuid.NullUUID `db:"template_id" json:"template_id"`
-	OrganizationID uuid.UUID     `db:"organization_id" json:"organization_id"`
-	CreatedAt      time.Time     `db:"created_at" json:"created_at"`
-	UpdatedAt      time.Time     `db:"updated_at" json:"updated_at"`
-	Name           string        `db:"name" json:"name"`
-	Readme         string        `db:"readme" json:"readme"`
-	JobID          uuid.UUID     `db:"job_id" json:"job_id"`
-	CreatedBy      uuid.UUID     `db:"created_by" json:"created_by"`
-	// IDs of Git auth providers for a specific template version
-	GitAuthProviders []string `db:"git_auth_providers" json:"git_auth_providers"`
-	// Message describing the changes in this version of the template, similar to a Git commit message. Like a commit message, this should be a short, high-level description of the changes in this version of the template. This message is immutable and should not be updated after the fact.
-	Message string `db:"message" json:"message"`
+	ID                 uuid.UUID      `db:"id" json:"id"`
+	TemplateID         uuid.NullUUID  `db:"template_id" json:"template_id"`
+	OrganizationID     uuid.UUID      `db:"organization_id" json:"organization_id"`
+	CreatedAt          time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt          time.Time      `db:"updated_at" json:"updated_at"`
+	Name               string         `db:"name" json:"name"`
+	Readme             string         `db:"readme" json:"readme"`
+	JobID              uuid.UUID      `db:"job_id" json:"job_id"`
+	CreatedBy          uuid.UUID      `db:"created_by" json:"created_by"`
+	GitAuthProviders   []string       `db:"git_auth_providers" json:"git_auth_providers"`
+	Message            string         `db:"message" json:"message"`
+	CreatedByAvatarURL sql.NullString `db:"created_by_avatar_url" json:"created_by_avatar_url"`
+	CreatedByUsername  string         `db:"created_by_username" json:"created_by_username"`
 }
 
 type TemplateVersionParameter struct {
@@ -1649,6 +1761,22 @@ type TemplateVersionParameter struct {
 	Ephemeral bool `db:"ephemeral" json:"ephemeral"`
 }
 
+type TemplateVersionTable struct {
+	ID             uuid.UUID     `db:"id" json:"id"`
+	TemplateID     uuid.NullUUID `db:"template_id" json:"template_id"`
+	OrganizationID uuid.UUID     `db:"organization_id" json:"organization_id"`
+	CreatedAt      time.Time     `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time     `db:"updated_at" json:"updated_at"`
+	Name           string        `db:"name" json:"name"`
+	Readme         string        `db:"readme" json:"readme"`
+	JobID          uuid.UUID     `db:"job_id" json:"job_id"`
+	CreatedBy      uuid.UUID     `db:"created_by" json:"created_by"`
+	// IDs of Git auth providers for a specific template version
+	GitAuthProviders []string `db:"git_auth_providers" json:"git_auth_providers"`
+	// Message describing the changes in this version of the template, similar to a Git commit message. Like a commit message, this should be a short, high-level description of the changes in this version of the template. This message is immutable and should not be updated after the fact.
+	Message string `db:"message" json:"message"`
+}
+
 type TemplateVersionVariable struct {
 	TemplateVersionID uuid.UUID `db:"template_version_id" json:"template_version_id"`
 	// Variable name
@@ -1680,6 +1808,8 @@ type User struct {
 	AvatarURL      sql.NullString `db:"avatar_url" json:"avatar_url"`
 	Deleted        bool           `db:"deleted" json:"deleted"`
 	LastSeenAt     time.Time      `db:"last_seen_at" json:"last_seen_at"`
+	// Daily (!) cron schedule (with optional CRON_TZ) signifying the start of the user's quiet hours. If empty, the default quiet hours on the instance is used instead.
+	QuietHoursSchedule string `db:"quiet_hours_schedule" json:"quiet_hours_schedule"`
 }
 
 type UserLink struct {
@@ -1689,6 +1819,13 @@ type UserLink struct {
 	OAuthAccessToken  string    `db:"oauth_access_token" json:"oauth_access_token"`
 	OAuthRefreshToken string    `db:"oauth_refresh_token" json:"oauth_refresh_token"`
 	OAuthExpiry       time.Time `db:"oauth_expiry" json:"oauth_expiry"`
+}
+
+// Visible fields of users are allowed to be joined with other tables for including context of other resources.
+type VisibleUser struct {
+	ID        uuid.UUID      `db:"id" json:"id"`
+	Username  string         `db:"username" json:"username"`
+	AvatarURL sql.NullString `db:"avatar_url" json:"avatar_url"`
 }
 
 type Workspace struct {
@@ -1704,6 +1841,7 @@ type Workspace struct {
 	Ttl               sql.NullInt64  `db:"ttl" json:"ttl"`
 	LastUsedAt        time.Time      `db:"last_used_at" json:"last_used_at"`
 	LockedAt          sql.NullTime   `db:"locked_at" json:"locked_at"`
+	DeletingAt        sql.NullTime   `db:"deleting_at" json:"deleting_at"`
 }
 
 type WorkspaceAgent struct {
@@ -1744,16 +1882,25 @@ type WorkspaceAgent struct {
 	// The number of seconds to wait for the shutdown script to complete. If the script does not complete within this time, the agent lifecycle will be marked as shutdown_timeout.
 	ShutdownScriptTimeoutSeconds int32 `db:"shutdown_script_timeout_seconds" json:"shutdown_script_timeout_seconds"`
 	// Total length of startup logs
-	StartupLogsLength int32 `db:"startup_logs_length" json:"startup_logs_length"`
+	LogsLength int32 `db:"logs_length" json:"logs_length"`
 	// Whether the startup logs overflowed in length
-	StartupLogsOverflowed bool                    `db:"startup_logs_overflowed" json:"startup_logs_overflowed"`
-	Subsystem             WorkspaceAgentSubsystem `db:"subsystem" json:"subsystem"`
+	LogsOverflowed bool                    `db:"logs_overflowed" json:"logs_overflowed"`
+	Subsystem      WorkspaceAgentSubsystem `db:"subsystem" json:"subsystem"`
 	// When startup script behavior is non-blocking, the workspace will be ready and accessible upon agent connection, when it is blocking, workspace will wait for the startup script to complete before becoming ready and accessible.
 	StartupScriptBehavior StartupScriptBehavior `db:"startup_script_behavior" json:"startup_script_behavior"`
 	// The time the agent entered the starting lifecycle state
 	StartedAt sql.NullTime `db:"started_at" json:"started_at"`
 	// The time the agent entered the ready or start_error lifecycle state
 	ReadyAt sql.NullTime `db:"ready_at" json:"ready_at"`
+}
+
+type WorkspaceAgentLog struct {
+	AgentID   uuid.UUID               `db:"agent_id" json:"agent_id"`
+	CreatedAt time.Time               `db:"created_at" json:"created_at"`
+	Output    string                  `db:"output" json:"output"`
+	ID        int64                   `db:"id" json:"id"`
+	Level     LogLevel                `db:"level" json:"level"`
+	Source    WorkspaceAgentLogSource `db:"source" json:"source"`
 }
 
 type WorkspaceAgentMetadatum struct {
@@ -1766,14 +1913,6 @@ type WorkspaceAgentMetadatum struct {
 	Timeout          int64     `db:"timeout" json:"timeout"`
 	Interval         int64     `db:"interval" json:"interval"`
 	CollectedAt      time.Time `db:"collected_at" json:"collected_at"`
-}
-
-type WorkspaceAgentStartupLog struct {
-	AgentID   uuid.UUID `db:"agent_id" json:"agent_id"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
-	Output    string    `db:"output" json:"output"`
-	ID        int64     `db:"id" json:"id"`
-	Level     LogLevel  `db:"level" json:"level"`
 }
 
 type WorkspaceAgentStat struct {
@@ -1814,7 +1953,35 @@ type WorkspaceApp struct {
 	External             bool               `db:"external" json:"external"`
 }
 
+// Joins in the username + avatar url of the initiated by user.
 type WorkspaceBuild struct {
+	ID                   uuid.UUID           `db:"id" json:"id"`
+	CreatedAt            time.Time           `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time           `db:"updated_at" json:"updated_at"`
+	WorkspaceID          uuid.UUID           `db:"workspace_id" json:"workspace_id"`
+	TemplateVersionID    uuid.UUID           `db:"template_version_id" json:"template_version_id"`
+	BuildNumber          int32               `db:"build_number" json:"build_number"`
+	Transition           WorkspaceTransition `db:"transition" json:"transition"`
+	InitiatorID          uuid.UUID           `db:"initiator_id" json:"initiator_id"`
+	ProvisionerState     []byte              `db:"provisioner_state" json:"provisioner_state"`
+	JobID                uuid.UUID           `db:"job_id" json:"job_id"`
+	Deadline             time.Time           `db:"deadline" json:"deadline"`
+	Reason               BuildReason         `db:"reason" json:"reason"`
+	DailyCost            int32               `db:"daily_cost" json:"daily_cost"`
+	MaxDeadline          time.Time           `db:"max_deadline" json:"max_deadline"`
+	InitiatorByAvatarUrl sql.NullString      `db:"initiator_by_avatar_url" json:"initiator_by_avatar_url"`
+	InitiatorByUsername  string              `db:"initiator_by_username" json:"initiator_by_username"`
+}
+
+type WorkspaceBuildParameter struct {
+	WorkspaceBuildID uuid.UUID `db:"workspace_build_id" json:"workspace_build_id"`
+	// Parameter name
+	Name string `db:"name" json:"name"`
+	// Parameter value
+	Value string `db:"value" json:"value"`
+}
+
+type WorkspaceBuildTable struct {
 	ID                uuid.UUID           `db:"id" json:"id"`
 	CreatedAt         time.Time           `db:"created_at" json:"created_at"`
 	UpdatedAt         time.Time           `db:"updated_at" json:"updated_at"`
@@ -1829,14 +1996,6 @@ type WorkspaceBuild struct {
 	Reason            BuildReason         `db:"reason" json:"reason"`
 	DailyCost         int32               `db:"daily_cost" json:"daily_cost"`
 	MaxDeadline       time.Time           `db:"max_deadline" json:"max_deadline"`
-}
-
-type WorkspaceBuildParameter struct {
-	WorkspaceBuildID uuid.UUID `db:"workspace_build_id" json:"workspace_build_id"`
-	// Parameter name
-	Name string `db:"name" json:"name"`
-	// Parameter value
-	Value string `db:"value" json:"value"`
 }
 
 type WorkspaceProxy struct {
@@ -1855,6 +2014,10 @@ type WorkspaceProxy struct {
 	Deleted bool `db:"deleted" json:"deleted"`
 	// Hashed secret is used to authenticate the workspace proxy using a session token.
 	TokenHashedSecret []byte `db:"token_hashed_secret" json:"token_hashed_secret"`
+	RegionID          int32  `db:"region_id" json:"region_id"`
+	DerpEnabled       bool   `db:"derp_enabled" json:"derp_enabled"`
+	// Disables app/terminal proxying for this proxy and only acts as a DERP relay.
+	DerpOnly bool `db:"derp_only" json:"derp_only"`
 }
 
 type WorkspaceResource struct {

@@ -1,11 +1,14 @@
+import Box from "@mui/material/Box"
 import { DeploymentOption } from "api/types"
 import { DAUsResponse } from "api/typesGenerated"
 import { ErrorAlert } from "components/Alert/ErrorAlert"
-import { DAUChart } from "components/DAUChart/DAUChart"
+import { DAUChart, DAUTitle } from "components/DAUChart/DAUChart"
 import { Header } from "components/DeploySettingsLayout/Header"
 import OptionsTable from "components/DeploySettingsLayout/OptionsTable"
 import { Stack } from "components/Stack/Stack"
+import { WorkspaceSection } from "components/WorkspaceSection/WorkspaceSection"
 import { useDeploymentOptions } from "utils/deployOptions"
+import { docs } from "utils/docs"
 
 export type GeneralSettingsPageViewProps = {
   deploymentOptions: DeploymentOption[]
@@ -22,13 +25,19 @@ export const GeneralSettingsPageView = ({
       <Header
         title="General"
         description="Information about your Coder deployment."
-        docsHref="https://coder.com/docs/coder-oss/latest/admin/configure"
+        docsHref={docs("/admin/configure")}
       />
       <Stack spacing={4}>
         {Boolean(getDeploymentDAUsError) && (
           <ErrorAlert error={getDeploymentDAUsError} />
         )}
-        {deploymentDAUs && <DAUChart daus={deploymentDAUs} />}
+        {deploymentDAUs && (
+          <Box height={200} sx={{ mb: 3 }}>
+            <WorkspaceSection title={<DAUTitle />}>
+              <DAUChart daus={deploymentDAUs} />
+            </WorkspaceSection>
+          </Box>
+        )}
         <OptionsTable
           options={useDeploymentOptions(
             deploymentOptions,

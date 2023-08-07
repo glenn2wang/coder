@@ -7,7 +7,7 @@ import * as Yup from "yup"
 
 export const selectInitialRichParametersValues = (
   templateParameters?: TemplateVersionParameter[],
-  defaultValuesFromQuery?: Record<string, string>,
+  defaultBuildParameters?: WorkspaceBuildParameter[],
 ): WorkspaceBuildParameter[] => {
   const defaults: WorkspaceBuildParameter[] = []
   if (!templateParameters) {
@@ -19,9 +19,20 @@ export const selectInitialRichParametersValues = (
 
     if (parameter.options.length > 0) {
       parameterValue = parameterValue ?? parameter.options[0].value
+      const validValues = parameter.options.map((option) => option.value)
 
-      if (defaultValuesFromQuery && defaultValuesFromQuery[parameter.name]) {
-        parameterValue = defaultValuesFromQuery[parameter.name]
+      if (defaultBuildParameters) {
+        const defaultBuildParameter = defaultBuildParameters.find(
+          (p) => p.name === parameter.name,
+        )
+
+        // We don't want invalid values from default parameters to be set
+        if (
+          defaultBuildParameter &&
+          validValues.includes(defaultBuildParameter.value)
+        ) {
+          parameterValue = defaultBuildParameter?.value
+        }
       }
 
       const buildParameter: WorkspaceBuildParameter = {
@@ -32,8 +43,18 @@ export const selectInitialRichParametersValues = (
       return
     }
 
-    if (defaultValuesFromQuery && defaultValuesFromQuery[parameter.name]) {
-      parameterValue = defaultValuesFromQuery[parameter.name]
+    if (parameter.ephemeral) {
+      parameterValue = parameter.default_value
+    }
+
+    if (defaultBuildParameters) {
+      const buildParameter = defaultBuildParameters.find(
+        (p) => p.name === parameter.name,
+      )
+
+      if (buildParameter) {
+        parameterValue = buildParameter?.value
+      }
     }
 
     const buildParameter: WorkspaceBuildParameter = {
@@ -181,4 +202,22 @@ export const workspaceBuildParameterValue = (
     return buildParameter.name === parameter.name
   })
   return (buildParameter && buildParameter.value) || ""
+}
+
+export const getInitialParameterValues = (
+  templateParameters: TemplateVersionParameter[],
+  buildParameters: WorkspaceBuildParameter[],
+) => {
+  return templateParameters.map((parameter) => {
+    const buildParameter = buildParameters.find(
+      (p) => p.name === parameter.name,
+    )
+    if (!buildParameter || parameter.ephemeral) {
+      return {
+        name: parameter.name,
+        value: parameter.default_value,
+      }
+    }
+    return buildParameter
+  })
 }

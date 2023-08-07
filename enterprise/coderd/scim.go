@@ -2,6 +2,7 @@ package coderd
 
 import (
 	"crypto/subtle"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 	scimjson "github.com/imulab/go-scim/pkg/v2/json"
 	"github.com/imulab/go-scim/pkg/v2/service"
 	"github.com/imulab/go-scim/pkg/v2/spec"
+	"golang.org/x/xerrors"
 
 	agpl "github.com/coder/coder/coderd"
 	"github.com/coder/coder/coderd/database"
@@ -152,6 +154,37 @@ func (api *API) scimPostUser(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//nolint:gocritic
+	dbUser, err := api.Database.GetUserByEmailOrUsername(dbauthz.AsSystemRestricted(ctx), database.GetUserByEmailOrUsernameParams{
+		Email:    email,
+		Username: sUser.UserName,
+	})
+	if err != nil && !xerrors.Is(err, sql.ErrNoRows) {
+		_ = handlerutil.WriteError(rw, err)
+		return
+	}
+	if err == nil {
+		sUser.ID = dbUser.ID.String()
+		sUser.UserName = dbUser.Username
+
+		if sUser.Active && dbUser.Status == database.UserStatusSuspended {
+			//nolint:gocritic
+			_, err = api.Database.UpdateUserStatus(dbauthz.AsSystemRestricted(r.Context()), database.UpdateUserStatusParams{
+				ID: dbUser.ID,
+				// The user will get transitioned to Active after logging in.
+				Status:    database.UserStatusDormant,
+				UpdatedAt: database.Now(),
+			})
+			if err != nil {
+				_ = handlerutil.WriteError(rw, err)
+				return
+			}
+		}
+
+		httpapi.Write(ctx, rw, http.StatusOK, sUser)
+		return
+	}
+
 	// The username is a required property in Coder. We make a best-effort
 	// attempt at using what the claims provide, but if that fails we will
 	// generate a random username.
@@ -182,7 +215,7 @@ func (api *API) scimPostUser(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	//nolint:gocritic // needed for SCIM
-	user, _, err := api.AGPL.CreateUser(dbauthz.AsSystemRestricted(ctx), api.Database, agpl.CreateUserRequest{
+	dbUser, _, err = api.AGPL.CreateUser(dbauthz.AsSystemRestricted(ctx), api.Database, agpl.CreateUserRequest{
 		CreateUserRequest: codersdk.CreateUserRequest{
 			Username:       sUser.UserName,
 			Email:          email,
@@ -195,8 +228,8 @@ func (api *API) scimPostUser(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sUser.ID = user.ID.String()
-	sUser.UserName = user.Username
+	sUser.ID = dbUser.ID.String()
+	sUser.UserName = dbUser.Username
 
 	httpapi.Write(ctx, rw, http.StatusOK, sUser)
 }
@@ -244,7 +277,8 @@ func (api *API) scimPatchUser(rw http.ResponseWriter, r *http.Request) {
 
 	var status database.UserStatus
 	if sUser.Active {
-		status = database.UserStatusActive
+		// The user will get transitioned to Active after logging in.
+		status = database.UserStatusDormant
 	} else {
 		status = database.UserStatusSuspended
 	}

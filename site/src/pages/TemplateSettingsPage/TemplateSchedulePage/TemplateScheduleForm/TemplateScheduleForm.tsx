@@ -16,10 +16,14 @@ import Link from "@mui/material/Link"
 import Checkbox from "@mui/material/Checkbox"
 import FormControlLabel from "@mui/material/FormControlLabel"
 import Switch from "@mui/material/Switch"
-import { InactivityDialog } from "./InactivityDialog"
-import { useWorkspacesToBeDeleted } from "./useWorkspacesToBeDeleted"
+import { DeleteLockedDialog, InactivityDialog } from "./InactivityDialog"
+import {
+  useWorkspacesToBeLocked,
+  useWorkspacesToBeDeleted,
+} from "./useWorkspacesToBeDeleted"
 import { TemplateScheduleFormValues, getValidationSchema } from "./formHelpers"
 import { TTLHelperText } from "./TTLHelperText"
+import { docs } from "utils/docs"
 
 const MS_HOUR_CONVERSION = 3600000
 const MS_DAY_CONVERSION = 86400000
@@ -70,6 +74,11 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
         ? template.locked_ttl_ms / MS_DAY_CONVERSION
         : 0,
 
+      restart_requirement: {
+        days_of_week: template.restart_requirement.days_of_week,
+        weeks: template.restart_requirement.weeks,
+      },
+
       allow_user_autostart: template.allow_user_autostart,
       allow_user_autostop: template.allow_user_autostop,
       failure_cleanup_enabled:
@@ -83,10 +92,16 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
     onSubmit: () => {
       if (
         form.values.inactivity_cleanup_enabled &&
+        workspacesToBeLockedToday &&
+        workspacesToBeLockedToday.length > 0
+      ) {
+        setIsInactivityDialogOpen(true)
+      } else if (
+        form.values.locked_cleanup_enabled &&
         workspacesToBeDeletedToday &&
         workspacesToBeDeletedToday.length > 0
       ) {
-        setIsInactivityDialogOpen(true)
+        setIsLockedDialogOpen(true)
       } else {
         submitValues()
       }
@@ -100,10 +115,18 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
   const { t } = useTranslation("templateSettingsPage")
   const styles = useStyles()
 
-  const workspacesToBeDeletedToday = useWorkspacesToBeDeleted(form.values)
+  const workspacesToBeLockedToday = useWorkspacesToBeLocked(
+    template,
+    form.values,
+  )
+  const workspacesToBeDeletedToday = useWorkspacesToBeDeleted(
+    template,
+    form.values,
+  )
 
   const [isInactivityDialogOpen, setIsInactivityDialogOpen] =
     useState<boolean>(false)
+  const [isLockedDialogOpen, setIsLockedDialogOpen] = useState<boolean>(false)
 
   const submitValues = () => {
     // on submit, convert from hours => ms
@@ -222,9 +245,7 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
               ) : (
                 <>
                   {commonT("licenseFieldTextHelper")}{" "}
-                  <Link href="https://coder.com/docs/v2/latest/enterprise">
-                    {commonT("learnMore")}
-                  </Link>
+                  <Link href={docs("/enterprise")}>{commonT("learnMore")}</Link>
                   .
                 </>
               ),
@@ -320,12 +341,11 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
                 inputProps={{ min: 0, step: "any" }}
                 label="Time until cleanup (days)"
                 type="number"
-                aria-label="Failure Cleanup"
               />
             </FormFields>
           </FormSection>
           <FormSection
-            title="Inactivity Cleanup"
+            title="Inactivity TTL"
             description="When enabled, Coder will lock workspaces that have not been accessed after a specified number of days."
           >
             <FormFields>
@@ -337,7 +357,7 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
                     onChange={handleToggleInactivityCleanup}
                   />
                 }
-                label="Enable Inactivity Cleanup"
+                label="Enable Inactivity TTL"
               />
               <TextField
                 {...getFieldHelpers(
@@ -354,12 +374,11 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
                 inputProps={{ min: 0, step: "any" }}
                 label="Time until cleanup (days)"
                 type="number"
-                aria-label="Inactivity Cleanup"
               />
             </FormFields>
           </FormSection>
           <FormSection
-            title="Locked Cleanup"
+            title="Deletion Grace Period"
             description="When enabled, Coder will permanently delete workspaces that have been locked for a specified number of days."
           >
             <FormFields>
@@ -371,7 +390,7 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
                     onChange={handleToggleLockedCleanup}
                   />
                 }
-                label="Enable Locked Cleanup"
+                label="Enable Locked TTL"
               />
               <TextField
                 {...getFieldHelpers(
@@ -386,18 +405,28 @@ export const TemplateScheduleForm: FC<TemplateScheduleForm> = ({
                 inputProps={{ min: 0, step: "any" }}
                 label="Time until cleanup (days)"
                 type="number"
-                aria-label="Locked Cleanup"
               />
             </FormFields>
           </FormSection>
         </>
       )}
-      <InactivityDialog
-        submitValues={submitValues}
-        isInactivityDialogOpen={isInactivityDialogOpen}
-        setIsInactivityDialogOpen={setIsInactivityDialogOpen}
-        workspacesToBeDeletedToday={workspacesToBeDeletedToday?.length ?? 0}
-      />
+      {workspacesToBeLockedToday && workspacesToBeLockedToday.length > 0 && (
+        <InactivityDialog
+          submitValues={submitValues}
+          isInactivityDialogOpen={isInactivityDialogOpen}
+          setIsInactivityDialogOpen={setIsInactivityDialogOpen}
+          workspacesToBeLockedToday={workspacesToBeLockedToday?.length ?? 0}
+        />
+      )}
+      {workspacesToBeDeletedToday && workspacesToBeDeletedToday.length > 0 && (
+        <DeleteLockedDialog
+          submitValues={submitValues}
+          isLockedDialogOpen={isLockedDialogOpen}
+          setIsLockedDialogOpen={setIsLockedDialogOpen}
+          workspacesToBeDeletedToday={workspacesToBeDeletedToday?.length ?? 0}
+        />
+      )}
+
       <FormFooter
         onCancel={onCancel}
         isLoading={isSubmitting}
